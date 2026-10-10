@@ -328,24 +328,11 @@
     <!-- Iframe for game execution -->
     <iframe id="game-frame" class="game-container"></iframe>
 
-    <!-- Support Modal -->
-    <div id="support-modal" class="overlay" onclick="closeSupport()">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <h2 class="text-2xl font-bold mb-4" style="font-family: 'Orbitron'; color: var(--neon-blue);">Support</h2>
-            <p class="mb-6 text-gray-300">For any issues or feedback, please reach out to our team at:</p>
-            <div class="bg-black p-4 rounded mb-6 select-all font-mono text-sm border border-gray-700">
-                nexcoresupport@gmail.com
-            </div>
-            <p class="text-sm text-gray-400 mb-8 italic">Please use the subject line: <br><strong>NEXLauncher bugs</strong></p>
-            <button onclick="closeSupport()" class="mc-btn min-w-[120px]">Close</button>
-        </div>
-    </div>
-
-    <!-- About Page -->
+<!-- About Page -->
     <div id="about-page">
         <button onclick="toggleAbout(false)" class="mc-btn back-btn min-w-0 px-6 py-2">← Back</button>
         <div class="about-container">
-            <h1 class="about-header">Nexus Launcher</h1>
+            <h1 class="about-header">Patterson Launcher</h1>
             
             <div class="about-section">
                 <p>
@@ -375,7 +362,6 @@
                     <li><strong>Installable</strong> – Add it to your desktop or home screen without downloading a traditional program</li>
                     <li><strong>Offline caching</strong> – Game assets and launcher files can be stored locally for faster startup</li>
                     <li><strong>App-like interface</strong> – Runs without browser UI for a more immersive experience</li>
-                    <li><strong>Automatic updates</strong> – The launcher updates itself when new versions are available</li>
                 </ul>
             </div>
 
@@ -398,8 +384,6 @@
                     <li><strong>WASM-GC Version:</strong> Uses WebAssembly with garbage collection for improved performance and more efficient memory management on modern browsers.</li>
                 </ul>
                 
-                <h3 class="font-bold text-white mt-4 mb-2">5. Seamless Updates</h3>
-                <p>The PWA automatically updates cached files when new builds of Eaglercraft or the launcher become available, keeping gameplay smooth without manual downloads.</p>
             </div>
 
             <div class="about-section">
@@ -409,6 +393,29 @@
                 </p>
             </div>
             
+            <div class="about-section">
+                <h2>3D Printing Your Build</h2>
+                <p>
+                    You can export your Eaglercraft 1.12.2 world and convert it into a 3D-printable file using the following steps:
+                </p>
+                <h3 class="font-bold text-white mt-4 mb-2">Step 1 — Export from Eaglercraft 1.12.2</h3>
+                <p>In singleplayer, open the pause menu and look for the <strong>Export World</strong> option. This saves your world as an <strong>.epk file</strong> to your device.</p>
+
+                <h3 class="font-bold text-white mt-4 mb-2">Step 2 — Decompile the EPK</h3>
+                <p>Use <strong>ayunWebEPK</strong> or <strong>Eagler Binary Tools</strong> to extract the raw NBT world data from the .epk file. This gives you a standard Minecraft-compatible world folder.</p>
+
+                <h3 class="font-bold text-white mt-4 mb-2">Step 3 — Import into Minecraft 1.8 Java Edition</h3>
+                <p>Copy the extracted world folder into your Minecraft Java Edition saves directory. Open it in Minecraft 1.8 to confirm it loaded correctly.</p>
+
+                <h3 class="font-bold text-white mt-4 mb-2">Step 4 — Open in Mineways</h3>
+                <p>Download <strong>Mineways</strong> (free) and open your world. Select your build area, then go to <em>File → Export for 3D Printing</em> to export as <strong>.stl</strong> or <strong>.obj</strong>.</p>
+
+                <h3 class="font-bold text-white mt-4 mb-2">Step 5 — Send to Your 3D Printer</h3>
+                <p>Load the exported file into your slicer software (e.g. Cura, PrusaSlicer) and print.</p>
+
+                <p class="mt-4 text-sm" style="color: #666;">Note: Step 3 requires Minecraft Java Edition installed locally. Eaglercraft 1.12.2 world data is compatible with Minecraft 1.8 saves format after EPK extraction.</p>
+            </div>
+
             <div class="text-center mt-8">
                 <button onclick="toggleAbout(false)" class="mc-btn">Return to Launcher</button>
             </div>
@@ -418,7 +425,7 @@
     <nav class="nav-container">
         <div class="logo-section">
             <div class="flex items-center">
-                <span class="nexus-text">Nexus</span>
+                <span class="nexus-text">Patterson</span>
                 <span class="full-name hidden sm:flex">
                     <img src="gamerz.png" alt="Gamerz" class="logo-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
                     <span style="display:none;">EaglercraftX</span> 
@@ -430,8 +437,6 @@
         <div class="ml-auto flex gap-6 text-xs font-bold uppercase tracking-wider text-gray-400">
             <a href="javascript:void(0)" onclick="toggleAbout(true)" class="hover:text-white transition">About</a>
             <a href="#offline-downloads-section" class="hover:text-white transition">Downloads</a>
-            <a href="#more-projects-section" class="hover:text-white transition">More Projects</a>
-            <a href="javascript:void(0)" onclick="openSupport()" class="hover:text-white transition">Support</a>
         </div>
     </nav>
 
@@ -456,31 +461,9 @@
             </a>
         </div>
 
-        <div id="more-projects-section" class="section-title">More Projects</div>
-        <div class="btn-group">
-            <a href="https://aegis-nex-core.vercel.app" target="_blank" class="mc-btn btn-tech flex items-center justify-center">
-                Aegis NexCore AI
-            </a>
-        </div>
-
-        <p class="footer-text">
-            NEX Launcher is a community-driven project. <br>
-            Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
-        </p>
     </main>
 
     <script>
-        /**
-         * Support Modal Logic
-         */
-        function openSupport() {
-            document.getElementById('support-modal').style.display = 'flex';
-        }
-
-        function closeSupport() {
-            document.getElementById('support-modal').style.display = 'none';
-        }
-
         /**
          * About Page Visibility Logic
          */
@@ -515,6 +498,9 @@
             const iframe = document.getElementById('game-frame');
             const docElm = document.documentElement;
 
+            // Release controller keys before replacing the current game document.
+            window.dispatchEvent(new Event('nexusgameunload'));
+
             // Show UI elements
             iframe.src = url;
             iframe.style.display = 'block';
@@ -536,6 +522,8 @@
         function exitGame() {
             const iframe = document.getElementById('game-frame');
 
+            window.dispatchEvent(new Event('nexusgameunload'));
+
             // Hide UI elements
             iframe.src = '';
             iframe.style.display = 'none';
@@ -547,20 +535,13 @@
             }
         }
 
-        /**
-         * Mobile Detection Helper
-         */
-        function isMobile() {
-            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        }
-
         document.getElementById('btn-js').addEventListener('click', () => {
-            const targetUrl = isMobile() ? 'https://eaglercraftx.pages.dev' : 'gamefile.html';
+            const targetUrl = 'gamefile.html';
             launchGame(targetUrl);
         });
 
         document.getElementById('btn-wasm').addEventListener('click', () => {
-            const targetUrl = isMobile() ? 'https://x.mess.eu.org/ninja-wasm/' : 'gamefilebetter.html';
+            const targetUrl = 'gamefilebetter.html';
             launchGame(targetUrl);
         });
 
@@ -571,6 +552,143 @@
                 exitGame();
             }
         });
+    </script>
+
+    <script>
+        // Bluetooth / USB Gamepad Controller Support
+        (function () {
+            const DEADZONE = 0.25;
+            const keyState = new Map();
+            let keyWindow = null;
+            let keyPadIndex = null;
+
+            function getGameWin() {
+                const iframe = document.getElementById('game-frame');
+                try { return iframe.contentWindow; } catch (e) { return null; }
+            }
+
+            function isGameActive() {
+                return document.getElementById('game-frame').style.display === 'block';
+            }
+
+            function sendKey(win, key, code, down) {
+                const evt = new KeyboardEvent(down ? 'keydown' : 'keyup', {
+                    key, code, bubbles: true, cancelable: true
+                });
+                try {
+                    win.dispatchEvent(evt);
+                    win.document.dispatchEvent(evt);
+                } catch (e) {}
+            }
+
+            function releaseKeys() {
+                keyState.forEach((key, code) => sendKey(keyWindow, key, code, false));
+                keyState.clear();
+                keyWindow = null;
+                keyPadIndex = null;
+            }
+
+            function updateKeys(win, pressedKeys, padIndex) {
+                if (keyWindow !== win || keyPadIndex !== padIndex) releaseKeys();
+                keyWindow = win;
+                keyPadIndex = padIndex;
+
+                keyState.forEach((key, code) => {
+                    if (!pressedKeys.has(code)) {
+                        sendKey(win, key, code, false);
+                        keyState.delete(code);
+                    }
+                });
+                pressedKeys.forEach((key, code) => {
+                    if (!keyState.has(code)) {
+                        keyState.set(code, key);
+                        sendKey(win, key, code, true);
+                    }
+                });
+            }
+
+            // Standard gamepad layout button → key mappings
+            const BTN_MAP = [
+                { i: 0,  key: ' ',       code: 'Space' },      // A  — Jump
+                { i: 1,  key: 'Shift',   code: 'ShiftLeft' },  // B  — Sneak
+                { i: 2,  key: 'q',       code: 'KeyQ' },       // X  — Drop item
+                { i: 3,  key: 'e',       code: 'KeyE' },       // Y  — Inventory
+                { i: 4,  key: '1',       code: 'Digit1' },     // LB — Hotbar slot 1
+                { i: 5,  key: '2',       code: 'Digit2' },     // RB — Hotbar slot 2
+                { i: 8,  key: 'Escape',  code: 'Escape' },     // Select/Back — Menu
+                { i: 9,  key: 'Escape',  code: 'Escape' },     // Start — Menu
+                { i: 12, key: 'ArrowUp',    code: 'ArrowUp' },
+                { i: 13, key: 'ArrowDown',  code: 'ArrowDown' },
+                { i: 14, key: 'ArrowLeft',  code: 'ArrowLeft' },
+                { i: 15, key: 'ArrowRight', code: 'ArrowRight' },
+            ];
+
+            let polling = false;
+            let pollFrame = null;
+
+            function poll() {
+                pollFrame = null;
+                if (!polling) return;
+                // Browser gamepad indices can contain empty slots after a disconnect.
+                const gp = Array.from(navigator.getGamepads()).find(pad => pad && pad.connected !== false);
+                const win = gp && isGameActive() ? getGameWin() : null;
+                if (win) {
+                    const pressedKeys = new Map();
+                    // Left stick — WASD movement
+                    const lx = gp.axes[0], ly = gp.axes[1];
+                    if (ly < -DEADZONE) pressedKeys.set('KeyW', 'w');
+                    if (ly >  DEADZONE) pressedKeys.set('KeyS', 's');
+                    if (lx < -DEADZONE) pressedKeys.set('KeyA', 'a');
+                    if (lx >  DEADZONE) pressedKeys.set('KeyD', 'd');
+
+                    // Right stick — camera/mouse look
+                    const rx = gp.axes[2], ry = gp.axes[3];
+                    const LOOK_SENSITIVITY = 10;
+                    if (Math.abs(rx) > DEADZONE || Math.abs(ry) > DEADZONE) {
+                        const dx = Math.abs(rx) > DEADZONE ? rx * LOOK_SENSITIVITY : 0;
+                        const dy = Math.abs(ry) > DEADZONE ? ry * LOOK_SENSITIVITY : 0;
+                        try {
+                            const moveEvt = new MouseEvent('mousemove', { bubbles: true, cancelable: true });
+                            Object.defineProperty(moveEvt, 'movementX', { value: Math.round(dx) });
+                            Object.defineProperty(moveEvt, 'movementY', { value: Math.round(dy) });
+                            win.document.dispatchEvent(moveEvt);
+                        } catch (e) {}
+                    }
+
+                    // Aggregate shared mappings before sending key transitions.
+                    BTN_MAP.forEach(({ i, key, code }) => {
+                        const btn = gp.buttons[i];
+                        if (btn && btn.pressed) pressedKeys.set(code, key);
+                    });
+                    updateKeys(win, pressedKeys, gp.index);
+                } else {
+                    releaseKeys();
+                }
+                pollFrame = requestAnimationFrame(poll);
+            }
+
+            window.addEventListener('gamepadconnected', (e) => {
+                console.log('NEX Controller connected:', e.gamepad.id);
+                if (!polling) {
+                    polling = true;
+                    pollFrame = requestAnimationFrame(poll);
+                }
+            });
+
+            window.addEventListener('gamepaddisconnected', (e) => {
+                console.log('NEX Controller disconnected');
+                // The browser may not have cleared the disconnected slot during this event.
+                const disconnectedIndex = e.gamepad?.index;
+                polling = Array.from(navigator.getGamepads()).some(pad =>
+                    pad && pad.connected !== false && pad.index !== disconnectedIndex);
+                cancelAnimationFrame(pollFrame);
+                pollFrame = polling ? requestAnimationFrame(poll) : null;
+                if (disconnectedIndex === keyPadIndex || disconnectedIndex === undefined) releaseKeys();
+            });
+
+            window.addEventListener('nexusgameunload', releaseKeys);
+            document.getElementById('game-frame').addEventListener('load', releaseKeys);
+        })();
     </script>
 </body>
 </html>
