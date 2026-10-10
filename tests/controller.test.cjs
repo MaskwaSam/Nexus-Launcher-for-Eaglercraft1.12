@@ -81,9 +81,9 @@ function launcher() {
             gamepads = [pad];
             window.dispatchEvent({ type: 'gamepadconnected', gamepad: pad });
         },
-        disconnect() {
-            gamepads = [];
-            window.dispatchEvent({ type: 'gamepaddisconnected' });
+        disconnect(remainingPads = [], disconnectedPad = gamepads.find(Boolean)) {
+            gamepads = remainingPads;
+            window.dispatchEvent({ type: 'gamepaddisconnected', gamepad: disconnectedPad });
         },
         tick() {
             assert.equal(frames.size, 1, 'only one controller polling loop should be scheduled');
@@ -102,6 +102,7 @@ function launcher() {
 function gamepad() {
     return {
         id: 'Test standard controller',
+        index: 0,
         axes: [0, 0, 0, 0],
         buttons: Array.from({ length: 16 }, () => ({ pressed: false }))
     };
@@ -260,6 +261,54 @@ test('repeated connection events keep one polling loop and disconnect cancels it
     app.connect(pad);
     app.tick();
     assert.equal(app.pendingFrames(), 1);
+});
+
+test('a controller in a nonzero slot works after the first slot becomes empty', () => {
+    const app = launcher();
+    const pad = gamepad();
+    pad.index = 1;
+    pad.buttons[0].pressed = true;
+    app.connect(pad);
+    app.setGamepads([null, pad]);
+    app.launch();
+    app.tick();
+    assert.deepEqual(app.keyEvents('Space'), ['keydown']);
+});
+
+test('disconnecting a secondary controller keeps the remaining controller polling', () => {
+    const app = launcher();
+    const primary = gamepad();
+    const secondary = gamepad();
+    secondary.index = 1;
+    primary.axes[1] = -1;
+    app.connect(primary);
+    app.setGamepads([primary, secondary]);
+    app.launch();
+    app.tick();
+    app.disconnect([primary], secondary);
+    app.tick();
+    assert.deepEqual(app.keyEvents('KeyW'), ['keydown'], 'secondary disconnect preserves active held input');
+});
+
+test('active-controller disconnect hands over after the browser updates its gamepad snapshot', () => {
+    const app = launcher();
+    const primary = gamepad();
+    const secondary = gamepad();
+    secondary.index = 1;
+    primary.buttons[0].pressed = true;
+    secondary.buttons[0].pressed = true;
+    app.connect(primary);
+    app.setGamepads([primary, secondary]);
+    app.launch();
+    app.tick();
+    // Browsers can still expose the disconnected pad during the event callback.
+    app.disconnect([primary, secondary], primary);
+    app.setGamepads([null, secondary]);
+    app.tick();
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown']);
+    app.disconnect([null, secondary], secondary);
+    assert.equal(app.pendingFrames(), 0, 'the final disconnect stops despite a stale snapshot');
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown', 'keyup']);
 });
 
 test('movement deadzone, other buttons and mouse look retain their mappings', () => {

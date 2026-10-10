@@ -560,6 +560,7 @@
             const DEADZONE = 0.25;
             const keyState = new Map();
             let keyWindow = null;
+            let keyPadIndex = null;
 
             function getGameWin() {
                 const iframe = document.getElementById('game-frame');
@@ -584,11 +585,13 @@
                 keyState.forEach((key, code) => sendKey(keyWindow, key, code, false));
                 keyState.clear();
                 keyWindow = null;
+                keyPadIndex = null;
             }
 
-            function updateKeys(win, pressedKeys) {
-                if (keyWindow !== win) releaseKeys();
+            function updateKeys(win, pressedKeys, padIndex) {
+                if (keyWindow !== win || keyPadIndex !== padIndex) releaseKeys();
                 keyWindow = win;
+                keyPadIndex = padIndex;
 
                 keyState.forEach((key, code) => {
                     if (!pressedKeys.has(code)) {
@@ -626,7 +629,8 @@
             function poll() {
                 pollFrame = null;
                 if (!polling) return;
-                const gp = navigator.getGamepads()[0];
+                // Browser gamepad indices can contain empty slots after a disconnect.
+                const gp = Array.from(navigator.getGamepads()).find(pad => pad && pad.connected !== false);
                 const win = gp && isGameActive() ? getGameWin() : null;
                 if (win) {
                     const pressedKeys = new Map();
@@ -656,7 +660,7 @@
                         const btn = gp.buttons[i];
                         if (btn && btn.pressed) pressedKeys.set(code, key);
                     });
-                    updateKeys(win, pressedKeys);
+                    updateKeys(win, pressedKeys, gp.index);
                 } else {
                     releaseKeys();
                 }
@@ -671,12 +675,15 @@
                 }
             });
 
-            window.addEventListener('gamepaddisconnected', () => {
+            window.addEventListener('gamepaddisconnected', (e) => {
                 console.log('NEX Controller disconnected');
-                polling = false;
+                // The browser may not have cleared the disconnected slot during this event.
+                const disconnectedIndex = e.gamepad?.index;
+                polling = Array.from(navigator.getGamepads()).some(pad =>
+                    pad && pad.connected !== false && pad.index !== disconnectedIndex);
                 cancelAnimationFrame(pollFrame);
-                pollFrame = null;
-                releaseKeys();
+                pollFrame = polling ? requestAnimationFrame(poll) : null;
+                if (disconnectedIndex === keyPadIndex || disconnectedIndex === undefined) releaseKeys();
             });
 
             window.addEventListener('nexusgameunload', releaseKeys);
