@@ -498,6 +498,9 @@
             const iframe = document.getElementById('game-frame');
             const docElm = document.documentElement;
 
+            // Release controller keys before replacing the current game document.
+            window.dispatchEvent(new Event('nexusgameunload'));
+
             // Show UI elements
             iframe.src = url;
             iframe.style.display = 'block';
@@ -518,6 +521,8 @@
 
         function exitGame() {
             const iframe = document.getElementById('game-frame');
+
+            window.dispatchEvent(new Event('nexusgameunload'));
 
             // Hide UI elements
             iframe.src = '';
@@ -553,7 +558,8 @@
         // Bluetooth / USB Gamepad Controller Support
         (function () {
             const DEADZONE = 0.25;
-            const keyState = {};
+            const keyState = new Map();
+            let keyWindow = null;
 
             function getGameWin() {
                 const iframe = document.getElementById('game-frame');
@@ -574,14 +580,28 @@
                 } catch (e) {}
             }
 
-            function setKey(win, key, code, pressed) {
-                if (pressed && !keyState[key]) {
-                    keyState[key] = true;
-                    sendKey(win, key, code, true);
-                } else if (!pressed && keyState[key]) {
-                    keyState[key] = false;
-                    sendKey(win, key, code, false);
-                }
+            function releaseKeys() {
+                keyState.forEach((key, code) => sendKey(keyWindow, key, code, false));
+                keyState.clear();
+                keyWindow = null;
+            }
+
+            function updateKeys(win, pressedKeys) {
+                if (keyWindow !== win) releaseKeys();
+                keyWindow = win;
+
+                keyState.forEach((key, code) => {
+                    if (!pressedKeys.has(code)) {
+                        sendKey(win, key, code, false);
+                        keyState.delete(code);
+                    }
+                });
+                pressedKeys.forEach((key, code) => {
+                    if (!keyState.has(code)) {
+                        keyState.set(code, key);
+                        sendKey(win, key, code, true);
+                    }
+                });
             }
 
             // Standard gamepad layout button → key mappings
@@ -601,54 +621,66 @@
             ];
 
             let polling = false;
+            let pollFrame = null;
 
             function poll() {
+                pollFrame = null;
                 if (!polling) return;
                 const gp = navigator.getGamepads()[0];
-                if (gp && isGameActive()) {
-                    const win = getGameWin();
-                    if (win) {
-                        // Left stick — WASD movement
-                        const lx = gp.axes[0], ly = gp.axes[1];
-                        setKey(win, 'w', 'KeyW', ly < -DEADZONE);
-                        setKey(win, 's', 'KeyS', ly >  DEADZONE);
-                        setKey(win, 'a', 'KeyA', lx < -DEADZONE);
-                        setKey(win, 'd', 'KeyD', lx >  DEADZONE);
+                const win = gp && isGameActive() ? getGameWin() : null;
+                if (win) {
+                    const pressedKeys = new Map();
+                    // Left stick — WASD movement
+                    const lx = gp.axes[0], ly = gp.axes[1];
+                    if (ly < -DEADZONE) pressedKeys.set('KeyW', 'w');
+                    if (ly >  DEADZONE) pressedKeys.set('KeyS', 's');
+                    if (lx < -DEADZONE) pressedKeys.set('KeyA', 'a');
+                    if (lx >  DEADZONE) pressedKeys.set('KeyD', 'd');
 
-                        // Right stick — camera/mouse look
-                        const rx = gp.axes[2], ry = gp.axes[3];
-                        const LOOK_SENSITIVITY = 10;
-                        if (Math.abs(rx) > DEADZONE || Math.abs(ry) > DEADZONE) {
-                            const dx = Math.abs(rx) > DEADZONE ? rx * LOOK_SENSITIVITY : 0;
-                            const dy = Math.abs(ry) > DEADZONE ? ry * LOOK_SENSITIVITY : 0;
-                            try {
-                                const moveEvt = new MouseEvent('mousemove', { bubbles: true, cancelable: true });
-                                Object.defineProperty(moveEvt, 'movementX', { value: Math.round(dx) });
-                                Object.defineProperty(moveEvt, 'movementY', { value: Math.round(dy) });
-                                win.document.dispatchEvent(moveEvt);
-                            } catch (e) {}
-                        }
-
-                        // Buttons
-                        BTN_MAP.forEach(({ i, key, code }) => {
-                            const btn = gp.buttons[i];
-                            setKey(win, key, code, btn && btn.pressed);
-                        });
+                    // Right stick — camera/mouse look
+                    const rx = gp.axes[2], ry = gp.axes[3];
+                    const LOOK_SENSITIVITY = 10;
+                    if (Math.abs(rx) > DEADZONE || Math.abs(ry) > DEADZONE) {
+                        const dx = Math.abs(rx) > DEADZONE ? rx * LOOK_SENSITIVITY : 0;
+                        const dy = Math.abs(ry) > DEADZONE ? ry * LOOK_SENSITIVITY : 0;
+                        try {
+                            const moveEvt = new MouseEvent('mousemove', { bubbles: true, cancelable: true });
+                            Object.defineProperty(moveEvt, 'movementX', { value: Math.round(dx) });
+                            Object.defineProperty(moveEvt, 'movementY', { value: Math.round(dy) });
+                            win.document.dispatchEvent(moveEvt);
+                        } catch (e) {}
                     }
+
+                    // Aggregate shared mappings before sending key transitions.
+                    BTN_MAP.forEach(({ i, key, code }) => {
+                        const btn = gp.buttons[i];
+                        if (btn && btn.pressed) pressedKeys.set(code, key);
+                    });
+                    updateKeys(win, pressedKeys);
+                } else {
+                    releaseKeys();
                 }
-                requestAnimationFrame(poll);
+                pollFrame = requestAnimationFrame(poll);
             }
 
             window.addEventListener('gamepadconnected', (e) => {
                 console.log('NEX Controller connected:', e.gamepad.id);
-                polling = true;
-                requestAnimationFrame(poll);
+                if (!polling) {
+                    polling = true;
+                    pollFrame = requestAnimationFrame(poll);
+                }
             });
 
             window.addEventListener('gamepaddisconnected', () => {
                 console.log('NEX Controller disconnected');
                 polling = false;
+                cancelAnimationFrame(pollFrame);
+                pollFrame = null;
+                releaseKeys();
             });
+
+            window.addEventListener('nexusgameunload', releaseKeys);
+            document.getElementById('game-frame').addEventListener('load', releaseKeys);
         })();
     </script>
 </body>
