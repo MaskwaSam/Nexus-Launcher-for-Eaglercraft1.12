@@ -561,6 +561,7 @@
             const keyState = new Map();
             let keyWindow = null;
             let keyPadIndex = null;
+            let focusWindow = null;
 
             function getGameWin() {
                 const iframe = document.getElementById('game-frame');
@@ -569,6 +570,13 @@
 
             function isGameActive() {
                 return document.getElementById('game-frame').style.display === 'block';
+            }
+
+            function watchGameFocus(win) {
+                if (focusWindow === win) return;
+                if (focusWindow) focusWindow.removeEventListener('blur', releaseKeys);
+                focusWindow = win;
+                if (focusWindow) focusWindow.addEventListener('blur', releaseKeys);
             }
 
             function sendKey(win, key, code, down) {
@@ -631,8 +639,9 @@
                 if (!polling) return;
                 // Browser gamepad indices can contain empty slots after a disconnect.
                 const gp = Array.from(navigator.getGamepads()).find(pad => pad && pad.connected !== false);
-                const win = gp && isGameActive() ? getGameWin() : null;
+                const win = gp && isGameActive() && !document.hidden && document.hasFocus() ? getGameWin() : null;
                 if (win) {
+                    watchGameFocus(win);
                     const pressedKeys = new Map();
                     // Left stick — WASD movement
                     const lx = gp.axes[0], ly = gp.axes[1];
@@ -686,8 +695,19 @@
                 if (disconnectedIndex === keyPadIndex || disconnectedIndex === undefined) releaseKeys();
             });
 
-            window.addEventListener('nexusgameunload', releaseKeys);
-            document.getElementById('game-frame').addEventListener('load', releaseKeys);
+            window.addEventListener('blur', releaseKeys);
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) releaseKeys();
+            });
+            window.addEventListener('nexusgameunload', () => {
+                releaseKeys();
+                watchGameFocus(null);
+            });
+            document.getElementById('game-frame').addEventListener('load', () => {
+                releaseKeys();
+                watchGameFocus(null);
+                watchGameFocus(getGameWin());
+            });
         })();
     </script>
 </body>
