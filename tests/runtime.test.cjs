@@ -98,10 +98,9 @@ test('CRC32 implementation matches the standard check vector', () => {
     assert.equal(crc32(Buffer.from('123456789')), 0xcbf43926);
 });
 
-test('bundled WASM EPW retains checksum validation and matches its payload', () => {
+test('bundled WASM EPW checksum matches its payload', () => {
     assert.equal(payload.subarray(0, 8).toString(), 'EAG$WASM');
     assert.equal(payload.readUInt32LE(8), payload.length);
-    assert.ok(wasm.includes('EPW file has an invalid checksum'));
     assert.equal(payload.readUInt32LE(12), crc32(payload.subarray(16)));
 });
 

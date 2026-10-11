@@ -1,5 +1,6 @@
 This site is a Progressive Web App (PWA) designed to launch and run Eaglercraft 1.12 directly in your browser. The launcher allows you to choose between two runtime versions: the JavaScript (JS) build or the WebAssembly Garbage-Collected (WASM-GC) build, giving users flexibility depending on their browser and device performance.
-\n+Runtime regression checks
+
+Runtime regression checks
 Run `node --test tests/*.test.cjs` with Node.js 18 or newer. Runtime checks verify the embedded WASM EPW checksum and exercise the bundled JavaScript mobile prompt with its real TeaVM thread suspension/resumption code and mocked DOM/display functions. These are not browser, phone or gameplay tests.
 
 The distribution has no buildable upstream source project. The JS mobile startup repair adds a suspension point in `DJt` (`waitForMobileLaunch`) so its existing launch button can remove the prompt and resume the startup thread. The WASM repair updates only the EPW header checksum; the customized payload and checksum validator are preserved. When intentionally changing the WASM payload, regenerate its CRC32 over bytes after the 16-byte header and update the payload-preservation hash in the runtime test.
