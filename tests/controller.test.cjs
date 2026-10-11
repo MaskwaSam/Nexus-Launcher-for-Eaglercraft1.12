@@ -18,6 +18,7 @@ function eventTarget() {
         removeEventListener(type, listener) {
             listeners.set(type, (listeners.get(type) || []).filter((item) => item !== listener));
         },
+        clearEventListeners() { listeners.clear(); },
         dispatchEvent(event) {
             for (const listener of listeners.get(event.type) || []) listener(event);
             return true;
@@ -368,6 +369,24 @@ test('a replacement iframe receives focus cleanup without keeping old listeners'
     app.frame.dispatchEvent({ type: 'load' });
     app.tick();
     oldWindow.dispatchEvent({ type: 'blur' });
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown']);
+    app.document.focused = false;
+    app.frame.contentWindow.dispatchEvent({ type: 'blur' });
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown', 'keyup']);
+});
+
+test('iframe self-reload restores blur cleanup when the WindowProxy stays the same', () => {
+    const app = launcher();
+    const pad = gamepad();
+    pad.buttons[0].pressed = true;
+    app.connect(pad);
+    app.launch();
+    app.frame.dispatchEvent({ type: 'load' });
+    app.tick();
+    // Navigation replaces the inner window's listeners, but not contentWindow's proxy.
+    app.frame.contentWindow.clearEventListeners();
+    app.frame.dispatchEvent({ type: 'load' });
+    app.tick();
     assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown']);
     app.document.focused = false;
     app.frame.contentWindow.dispatchEvent({ type: 'blur' });

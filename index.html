@@ -705,6 +705,7 @@
             });
             document.getElementById('game-frame').addEventListener('load', () => {
                 releaseKeys();
+                watchGameFocus(null);
                 watchGameFocus(getGameWin());
             });
         })();
