@@ -395,25 +395,15 @@
             
             <div class="about-section">
                 <h2>3D Printing Your Build</h2>
-                <p>
-                    You can export your Eaglercraft 1.12.2 world and convert it into a 3D-printable file using the following steps:
-                </p>
-                <h3 class="font-bold text-white mt-4 mb-2">Step 1 — Export from Eaglercraft 1.12.2</h3>
-                <p>In singleplayer, open the pause menu and look for the <strong>Export World</strong> option. This saves your world as an <strong>.epk file</strong> to your device.</p>
-
-                <h3 class="font-bold text-white mt-4 mb-2">Step 2 — Decompile the EPK</h3>
-                <p>Use <strong>ayunWebEPK</strong> or <strong>Eagler Binary Tools</strong> to extract the raw NBT world data from the .epk file. This gives you a standard Minecraft-compatible world folder.</p>
-
-                <h3 class="font-bold text-white mt-4 mb-2">Step 3 — Import into Minecraft 1.8 Java Edition</h3>
-                <p>Copy the extracted world folder into your Minecraft Java Edition saves directory. Open it in Minecraft 1.8 to confirm it loaded correctly.</p>
-
-                <h3 class="font-bold text-white mt-4 mb-2">Step 4 — Open in Mineways</h3>
-                <p>Download <strong>Mineways</strong> (free) and open your world. Select your build area, then go to <em>File → Export for 3D Printing</em> to export as <strong>.stl</strong> or <strong>.obj</strong>.</p>
-
-                <h3 class="font-bold text-white mt-4 mb-2">Step 5 — Send to Your 3D Printer</h3>
-                <p>Load the exported file into your slicer software (e.g. Cura, PrusaSlicer) and print.</p>
-
-                <p class="mt-4 text-sm" style="color: #666;">Note: Step 3 requires Minecraft Java Edition installed locally. Eaglercraft 1.12.2 world data is compatible with Minecraft 1.8 saves format after EPK extraction.</p>
+                <p>Work on a copy of your world and keep the original export unchanged. The EPK-to-Java conversion for this bundled 1.12.2 client has not been verified end to end.</p>
+                <h3 class="font-bold text-white mt-4 mb-2">1 — Back up your world</h3>
+                <p>Use the client's world backup/export controls, keep the downloaded file in a safe place, and make a separate working copy. Record that it came from Eaglercraft 1.12.2.</p>
+                <h3 class="font-bold text-white mt-4 mb-2">2 — Check conversion support first</h3>
+                <p><a href="https://github.com/lax1dude/eagler-binary-tools" target="_blank" rel="noopener noreferrer">Eagler Binary Tools documentation</a> describes EPK extraction, but does not establish that this client's 1.12.2 world export becomes a usable Java world. Extraction alone is not proof of world compatibility. Use only a converter that explicitly supports your export version, write to a new folder, and stop if support is unclear.</p>
+                <h3 class="font-bold text-white mt-4 mb-2">3 — Preserve the world version</h3>
+                <p>If conversion produces a valid Java Edition world, inspect a disposable copy with a compatible Minecraft Java 1.12.2 installation if needed. Do not downgrade it to 1.8 or overwrite the original export. Check chunks, blocks, and entities before continuing.</p>
+                <h3 class="font-bold text-white mt-4 mb-2">4 — Export with Mineways</h3>
+                <p><a href="https://www.realtimerendering.com/erich/minecraft/public/mineways/downloads.html" target="_blank" rel="noopener noreferrer">Mineways</a> reads supported Java Edition worlds. Open the converted copy, confirm the build appears correctly, select an area, and use <em>File → Export for 3D Printing</em>. Follow the <a href="https://www.realtimerendering.com/erich/minecraft/public/mineways/mineways.html" target="_blank" rel="noopener noreferrer">official export documentation</a> for STL/OBJ settings, then inspect the model in your slicer before printing.</p>
             </div>
 
             <div class="text-center mt-8">
@@ -561,6 +551,7 @@
             const keyState = new Map();
             let keyWindow = null;
             let keyPadIndex = null;
+            let focusWindow = null;
 
             function getGameWin() {
                 const iframe = document.getElementById('game-frame');
@@ -569,6 +560,13 @@
 
             function isGameActive() {
                 return document.getElementById('game-frame').style.display === 'block';
+            }
+
+            function watchGameFocus(win) {
+                if (focusWindow === win) return;
+                if (focusWindow) focusWindow.removeEventListener('blur', releaseKeys);
+                focusWindow = win;
+                if (focusWindow) focusWindow.addEventListener('blur', releaseKeys);
             }
 
             function sendKey(win, key, code, down) {
@@ -631,8 +629,9 @@
                 if (!polling) return;
                 // Browser gamepad indices can contain empty slots after a disconnect.
                 const gp = Array.from(navigator.getGamepads()).find(pad => pad && pad.connected !== false);
-                const win = gp && isGameActive() ? getGameWin() : null;
+                const win = gp && isGameActive() && !document.hidden && document.hasFocus() ? getGameWin() : null;
                 if (win) {
+                    watchGameFocus(win);
                     const pressedKeys = new Map();
                     // Left stick — WASD movement
                     const lx = gp.axes[0], ly = gp.axes[1];
@@ -651,7 +650,9 @@
                             const moveEvt = new MouseEvent('mousemove', { bubbles: true, cancelable: true });
                             Object.defineProperty(moveEvt, 'movementX', { value: Math.round(dx) });
                             Object.defineProperty(moveEvt, 'movementY', { value: Math.round(dy) });
-                            win.document.dispatchEvent(moveEvt);
+                            // Both bundled editions attach mouse look to their canvas.
+                            const canvas = win.document.querySelector('canvas');
+                            if (canvas) canvas.dispatchEvent(moveEvt);
                         } catch (e) {}
                     }
 
@@ -686,8 +687,19 @@
                 if (disconnectedIndex === keyPadIndex || disconnectedIndex === undefined) releaseKeys();
             });
 
-            window.addEventListener('nexusgameunload', releaseKeys);
-            document.getElementById('game-frame').addEventListener('load', releaseKeys);
+            window.addEventListener('blur', releaseKeys);
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) releaseKeys();
+            });
+            window.addEventListener('nexusgameunload', () => {
+                releaseKeys();
+                watchGameFocus(null);
+            });
+            document.getElementById('game-frame').addEventListener('load', () => {
+                releaseKeys();
+                watchGameFocus(null);
+                watchGameFocus(getGameWin());
+            });
         })();
     </script>
 </body>

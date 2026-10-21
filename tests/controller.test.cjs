@@ -15,6 +15,10 @@ function eventTarget() {
             if (!listeners.has(type)) listeners.set(type, []);
             listeners.get(type).push(listener);
         },
+        removeEventListener(type, listener) {
+            listeners.set(type, (listeners.get(type) || []).filter((item) => item !== listener));
+        },
+        clearEventListeners() { listeners.clear(); },
         dispatchEvent(event) {
             for (const listener of listeners.get(event.type) || []) listener(event);
             return true;
@@ -30,17 +34,24 @@ function launcher() {
     let gamepads = [];
     function gameWindow() {
         const received = [];
-        return {
+        return Object.assign(eventTarget(), {
             events: received,
-            dispatchEvent() {},
             document: {
+                querySelector(selector) {
+                    return selector === 'canvas' ? { dispatchEvent(event) {
+                        received.push(event);
+                        events.push(event);
+                        operations.push(event.type);
+                    } } : null;
+                },
                 dispatchEvent(event) {
+                    assert.notEqual(event.type, 'mousemove', 'camera input must reach the runtime canvas');
                     received.push(event);
                     events.push(event);
                     operations.push(event.type);
                 }
             }
-        };
+        });
     }
     const frame = Object.assign(eventTarget(), {
         style: { display: 'none' },
@@ -58,6 +69,9 @@ function launcher() {
         body: { style: {} },
         documentElement: {},
         fullscreenElement: null,
+        hidden: false,
+        focused: true,
+        hasFocus() { return this.focused; },
         getElementById(id) { return elements[id]; },
         exitFullscreen() { this.fullscreenElement = null; }
     });
@@ -75,7 +89,7 @@ function launcher() {
     });
     scripts.forEach((source) => new vm.Script(source).runInContext(context));
     return {
-        events, operations, frame, document, gameWindow,
+        events, operations, frame, document, window, gameWindow,
         setGamepads(pads) { gamepads = pads; },
         connect(pad) {
             gamepads = [pad];
@@ -112,6 +126,32 @@ test('launcher inline scripts and service worker parse', () => {
     assert.equal(scripts.length, 2, 'both launcher and controller scripts are exercised');
     scripts.forEach((source) => new vm.Script(source));
     new vm.Script(fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8'));
+});
+
+test('service worker refreshes actual launcher assets and only expires Nexus caches', async () => {
+    const handlers = {};
+    const removed = [];
+    let assets;
+    let cacheName;
+    const context = vm.createContext({
+        self: { addEventListener(type, handler) { handlers[type] = handler; } },
+        caches: {
+            async open(name) { cacheName = name; return { async addAll(paths) { assets = paths; } }; },
+            async keys() { return ['nexus-launcher-v1', 'nexus-launcher-v2', 'other-app-cache']; },
+            async delete(name) { removed.push(name); }
+        },
+        console: { log() {} }
+    });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8'), context);
+    let completion;
+    const event = { waitUntil(promise) { completion = promise; } };
+    handlers.install(event); await completion;
+    assert.equal(cacheName, 'nexus-launcher-v2');
+    assert.ok(assets.includes('./index.html'));
+    assert.ok(!assets.includes('./launcher.html'));
+    for (const asset of assets) assert.ok(fs.existsSync(path.join(__dirname, '..', asset)), asset);
+    handlers.activate(event); await completion;
+    assert.deepEqual(removed, ['nexus-launcher-v1']);
 });
 
 for (const button of [8, 9]) {
@@ -273,6 +313,118 @@ test('a controller in a nonzero slot works after the first slot becomes empty', 
     app.launch();
     app.tick();
     assert.deepEqual(app.keyEvents('Space'), ['keydown']);
+});
+
+for (const target of ['launcher', 'iframe', 'hidden']) {
+    test(`${target} focus loss immediately releases keys and refocus restores held input`, () => {
+        const app = launcher();
+        const pad = gamepad();
+        pad.axes[1] = -1;
+        pad.buttons[0].pressed = true;
+        pad.buttons[8].pressed = true;
+        pad.buttons[9].pressed = true;
+        app.connect(pad);
+        app.launch();
+        app.frame.dispatchEvent({ type: 'load' });
+        app.tick();
+        if (target === 'hidden') {
+            app.document.hidden = true;
+            app.document.dispatchEvent({ type: 'visibilitychange' });
+        } else {
+            app.document.focused = false;
+            (target === 'iframe' ? app.frame.contentWindow : app.window).dispatchEvent({ type: 'blur' });
+        }
+        for (const code of ['KeyW', 'Space', 'Escape']) {
+            assert.deepEqual(app.keyEvents(code), ['keydown', 'keyup'], 'cleanup cannot wait for a background animation frame');
+        }
+        app.tick();
+        app.tick();
+        for (const code of ['KeyW', 'Space', 'Escape']) {
+            assert.deepEqual(app.keyEvents(code), ['keydown', 'keyup'], 'no controller input while unfocused/hidden');
+        }
+        app.document.focused = true;
+        app.document.hidden = false;
+        app.document.dispatchEvent({ type: 'visibilitychange' });
+        app.tick();
+        for (const code of ['KeyW', 'Space', 'Escape']) {
+            assert.deepEqual(app.keyEvents(code), ['keydown', 'keyup', 'keydown']);
+        }
+        pad.axes[1] = 0;
+        pad.buttons.forEach((button) => { button.pressed = false; });
+        app.tick();
+        for (const code of ['KeyW', 'Space', 'Escape']) {
+            assert.deepEqual(app.keyEvents(code), ['keydown', 'keyup', 'keydown', 'keyup']);
+        }
+    });
+}
+
+test('polling suppresses input if focus is lost without a blur event', () => {
+    const app = launcher();
+    const pad = gamepad();
+    pad.buttons[0].pressed = true;
+    app.connect(pad);
+    app.launch();
+    app.tick();
+    app.document.focused = false;
+    app.tick();
+    app.tick();
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup']);
+    app.document.focused = true;
+    app.tick();
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown']);
+});
+
+test('moving focus into the iframe does not disable controller input', () => {
+    const app = launcher();
+    const pad = gamepad();
+    pad.buttons[0].pressed = true;
+    app.connect(pad);
+    app.launch();
+    app.tick();
+    app.window.dispatchEvent({ type: 'blur' });
+    app.tick();
+    assert.equal(app.keyEvents('Space').at(-1), 'keydown', 'the focused game keeps receiving held input');
+    pad.buttons[0].pressed = false;
+    app.tick();
+    assert.equal(app.keyEvents('Space').at(-1), 'keyup');
+});
+
+test('a replacement iframe receives focus cleanup without keeping old listeners', () => {
+    const app = launcher();
+    const pad = gamepad();
+    pad.buttons[0].pressed = true;
+    app.connect(pad);
+    app.launch();
+    app.frame.dispatchEvent({ type: 'load' });
+    app.tick();
+    const oldWindow = app.frame.contentWindow;
+    app.launch('gamefilebetter.html');
+    app.frame.contentWindow = app.gameWindow();
+    app.frame.dispatchEvent({ type: 'load' });
+    app.tick();
+    oldWindow.dispatchEvent({ type: 'blur' });
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown']);
+    app.document.focused = false;
+    app.frame.contentWindow.dispatchEvent({ type: 'blur' });
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown', 'keyup']);
+});
+
+test('iframe self-reload restores blur cleanup when the WindowProxy stays the same', () => {
+    const app = launcher();
+    const pad = gamepad();
+    pad.buttons[0].pressed = true;
+    app.connect(pad);
+    app.launch();
+    app.frame.dispatchEvent({ type: 'load' });
+    app.tick();
+    // Navigation replaces the inner window's listeners, but not contentWindow's proxy.
+    app.frame.contentWindow.clearEventListeners();
+    app.frame.dispatchEvent({ type: 'load' });
+    app.tick();
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown']);
+    app.document.focused = false;
+    app.frame.contentWindow.dispatchEvent({ type: 'blur' });
+    assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown', 'keyup']);
 });
 
 test('disconnecting a secondary controller keeps the remaining controller polling', () => {
