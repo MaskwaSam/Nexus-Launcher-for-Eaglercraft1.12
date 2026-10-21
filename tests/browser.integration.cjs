@@ -5,9 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const http = require('node:http');
+const { execFileSync } = require('node:child_process');
 const { chromium, devices } = require(process.env.NEXUS_PLAYWRIGHT_MODULE || 'playwright');
 
-const root = path.join(__dirname, '..');
+const root = path.resolve(process.env.NEXUS_BROWSER_ROOT || path.join(__dirname, '..'));
 const output = process.env.NEXUS_BROWSER_OUTPUT || fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-browser-'));
 fs.mkdirSync(output, { recursive: true });
 const results = { checks: [], limitations: ['Simulated controllers and emulated touch; no physical devices or gameplay.'], requests404: [] };
@@ -141,7 +142,7 @@ async function mobile(browser, url, edition, direct = false) {
     const context = await browser.newContext(devices['Pixel 7']);
     const page = await context.newPage();
     try {
-        await page.goto(direct ? url + 'gamefile.html' : url, { waitUntil: 'domcontentloaded' });
+        await page.goto(direct ? url + (edition === 'wasm' ? 'gamefilebetter.html' : 'gamefile.html') : url, { waitUntil: 'domcontentloaded' });
         if (!direct) await page.locator(edition === 'js' ? '#btn-js' : '#btn-wasm').tap();
         const game = direct ? page.mainFrame() : await (await page.locator('#game-frame').elementHandle()).contentFrame();
         const launch = game.getByText(/Launch EaglercraftX/i);
@@ -156,21 +157,113 @@ async function mobile(browser, url, edition, direct = false) {
         await page.screenshot({ path: path.join(output, mode + '-profile.png'), scale: 'css' });
         check(mode + ': trusted launch tap dismisses prompt; canvas is present', { viewport: page.viewportSize() });
         await game.evaluate(() => {
-            window.__trustedTouch = [];
-            document.querySelector('canvas').addEventListener('touchstart', event => window.__trustedTouch.push(event.isTrusted), true);
+            window.__menuMouse = [];
+            for (const type of ['mousedown', 'mouseup', 'click']) window.addEventListener(type, event => {
+                window.__menuMouse.push({ type, trusted: event.isTrusted, target: event.target.tagName });
+            }, true);
         });
-        await page.touchscreen.tap(206, 342);
-        await page.waitForTimeout(800);
-        const touches = await game.evaluate(() => window.__trustedTouch);
-        assert.ok(touches.length > 0 && touches.every(Boolean));
-        await page.screenshot({ path: path.join(output, mode + '-after-done-tap.png'), scale: 'css' });
-        if (edition === 'wasm') {
-            await page.mouse.click(206, 342);
-            await page.waitForTimeout(800);
-            await page.screenshot({ path: path.join(output, mode + '-after-mouse.png'), scale: 'css' });
-            results.limitations.push('Visually compare WASM Done tap and identical-position mouse screenshots; canvas presence is not touch-menu acceptance.');
-            results.checks.push({ name: mode + ': touch-menu acceptance', status: 'requires_visual_review', screenshots: [mode + '-after-done-tap.png', mode + '-after-mouse.png'] });
+        const cdp = await context.newCDPSession(page);
+        let contact = 0;
+        async function screen(label, expected, footer = false) {
+            await page.waitForTimeout(150);
+            const filename = path.join(output, mode + '-' + label + '.png');
+            await page.screenshot({ path: filename });
+            const viewport = page.viewportSize();
+            const crop = filename.replace(/\.png$/, footer ? '-footer.png' : '-heading.png');
+            await page.screenshot({ path: crop, clip: { x: 0, y: footer ? viewport.height - 40 : 0, width: viewport.width, height: footer ? 40 : 110 } });
+            const text = execFileSync(process.env.NEXUS_TESSERACT_EXECUTABLE || 'tesseract', [crop, 'stdout', '--psm', '11'], { encoding: 'utf8', timeout: 10000, maxBuffer: 256 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+            fs.writeFileSync(crop + '.txt', text);
+            const normalized = text.toLowerCase().replace(/[^a-z]/g, '');
+            if (expected) assert.match(normalized, expected, label + ' must show the next rendered menu; OCR was: ' + text);
+            return normalized;
         }
+        async function tap(x, y) {
+            await game.evaluate(() => { window.__menuMouse = []; });
+            await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: contact++ % 2, radiusX: 12, radiusY: 12, force: 1 }] });
+            await page.waitForTimeout(160);
+            await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+            await page.waitForTimeout(350);
+            const events = await game.evaluate(() => window.__menuMouse);
+            assert.deepEqual(events.map(event => event.type), ['mousedown', 'mouseup', 'click'], 'one native mouse pair per trusted tap');
+            assert.ok(events.every(event => event.trusted && event.target === 'CANVAS'), 'compatibility mouse events must come from the browser');
+        }
+        async function titleAfterProfile(label) {
+            await tap(206, 342); // Profile Done.
+            let heading = await screen(label + '-after-done');
+            if (/defaultuserna[mn]edetected/.test(heading)) {
+                await tap(206, 313); // Continue Anyway when the runtime shows its username warning.
+                heading = await screen(label + '-after-continue');
+            }
+            if (/(important|inportant)/.test(heading)) await tap(206, 465); // Existing first-load acknowledgement.
+            await screen(label + '-title', /resourcescopyright/, true);
+        }
+        async function controls(label) {
+            await tap(147, 371);
+            await screen(label + '-options', /options/);
+            await tap(298, 226);
+            await screen(label + '-controls', /controls/);
+        }
+        const touchscreen = () => game.evaluate(() => /(?:^|\n)touchscreen:true(?:\n|$)/.test(atob(localStorage.getItem('_eaglercraft_1.12.g') || '')));
+        await screen('initial-profile', /editprofile/);
+        assert.equal(await touchscreen(), false);
+
+        async function gestures(label) {
+            // These gestures leave Profile open; the following fresh Done tap must work.
+            for (const gesture of ['cancel', 'drag']) {
+                await game.evaluate(() => { window.__menuMouse = []; });
+                await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 206, y: 342, id: 11, radiusX: 12, radiusY: 12, force: 1 }] });
+                await page.waitForTimeout(100);
+                if (gesture === 'drag') await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 246, y: 342, id: 11, radiusX: 12, radiusY: 12, force: 1 }] });
+                await cdp.send('Input.dispatchTouchEvent', { type: gesture === 'cancel' ? 'touchCancel' : 'touchEnd', touchPoints: [] });
+                await page.waitForTimeout(350);
+                assert.deepEqual(await game.evaluate(() => window.__menuMouse), [], gesture + ' must not activate a menu button');
+                await screen(label + '-' + gesture + '-profile', /editprofile/);
+            }
+            const primary = { x: 10, y: 600, id: 0 };
+            const secondary = { x: 50, y: 640, id: 1 };
+            for (const staggered of [false, true]) {
+                await game.evaluate(() => { window.__menuMouse = []; });
+                if (staggered) {
+                    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [primary] });
+                    await page.waitForTimeout(80);
+                }
+                await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [primary, secondary] });
+                await page.waitForTimeout(160);
+                if (staggered) {
+                    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [secondary] });
+                    await page.waitForTimeout(80);
+                }
+                await cdp.send('Input.dispatchTouchEvent', { type: staggered ? 'touchCancel' : 'touchEnd', touchPoints: [] });
+                await page.waitForTimeout(350);
+                const multiple = await game.evaluate(() => window.__menuMouse);
+                const count = type => multiple.filter(event => event.type === type).length;
+                assert.equal(count('mousedown'), count('mouseup'));
+                assert.ok(count('mousedown') <= 1 && count('click') <= 1, 'multitouch must not duplicate activation');
+                assert.ok(multiple.every(event => event.trusted && event.target === 'CANVAS'));
+                await screen(label + (staggered ? '-staggered' : '-simultaneous') + '-profile', /editprofile/);
+            }
+            check(mode + ': ' + label + ' cancel, drag and staggered/simultaneous multitouch preserve balanced input');
+        }
+        await gestures('mode-off');
+        await titleAfterProfile('mode-off');
+        await controls('mode-off');
+        check(mode + ': trusted taps advance profile through title, Options and Controls with mode OFF');
+        await tap(114, 60);
+        assert.equal(await touchscreen(), true, 'one tap must turn Touchscreen Mode ON');
+        await screen('touchscreen-on', /controls/);
+        await tap(298, 818); // Controls Done.
+        await screen('on-back-options', /options/);
+        await tap(206, 342); // Options Done.
+        await screen('on-back-title', /resourcescopyright/, true);
+        await tap(263, 371); // Edit Profile.
+        await screen('on-profile', /editprofile/);
+        await gestures('mode-on');
+        await titleAfterProfile('mode-on');
+        await controls('mode-on');
+        await tap(114, 60);
+        assert.equal(await touchscreen(), false, 'restore Touchscreen Mode OFF with one tap');
+        check(mode + ': repeated native taps work with mode ON and restore mode OFF');
+        results.checks.push({ name: mode + ': rendered touch-menu acceptance', status: 'pass', method: 'trusted native mouse pairs plus OCR of rendered menu headings/footer', touchscreenModes: ['OFF', 'ON'], nativeTapCount: contact });
     } finally { await context.close(); }
 }
 
@@ -191,13 +284,18 @@ async function mobile(browser, url, edition, direct = false) {
     try {
         browser = await chromium.launch({ headless: true, chromiumSandbox: true, ...(process.env.NEXUS_BROWSER_EXECUTABLE ? { executablePath: process.env.NEXUS_BROWSER_EXECUTABLE } : {}) });
         results.browserVersion = browser.version();
-        for (const [name, run] of [
+        const scenarios = [
             ['desktop-js', () => desktop(browser, url, 'js')],
             ['desktop-wasm', () => desktop(browser, url, 'wasm')],
             ['android-js-iframe', () => mobile(browser, url, 'js')],
             ['android-js-direct', () => mobile(browser, url, 'js', true)],
-            ['android-wasm-iframe', () => mobile(browser, url, 'wasm')]
-        ]) {
+            ['android-wasm-iframe', () => mobile(browser, url, 'wasm')],
+            ['android-wasm-direct', () => mobile(browser, url, 'wasm', true)]
+        ];
+        const selected = process.env.NEXUS_BROWSER_SCENARIOS?.split(',');
+        if (selected) assert.ok(selected.every(name => scenarios.some(([known]) => known === name)), 'unknown selected browser scenario');
+        results.selectedScenarios = selected || scenarios.map(([name]) => name);
+        for (const [name, run] of scenarios.filter(([name]) => !selected || selected.includes(name))) {
             try { await run(); }
             catch (error) { results.checks.push({ name, status: 'fail', error: error.message }); console.error('FAIL ' + name + ': ' + error.message); process.exitCode = 1; }
         }
