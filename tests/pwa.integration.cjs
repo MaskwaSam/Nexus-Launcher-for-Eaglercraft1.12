@@ -165,6 +165,66 @@ async function launcher(page, label) {
     pass(label + ': installed standalone layout, local assets/fonts and About/back', assets);
 }
 
+async function worldBackups(page, label) {
+    const databaseName = '_net_lax1dude_eaglercraft_v1_8_internal_PlatformFilesystem_1_12_2_';
+    const databaseExists = () => page.evaluate(async name =>
+        (await indexedDB.databases()).some(database => database.name === name), databaseName);
+    assert.equal(await databaseExists(), false, label + ': world database should be absent before opening backups');
+
+    await page.locator('#btn-world-backups').click();
+    const dialog = page.locator('#world-backups-dialog');
+    await dialog.waitFor({ state: 'visible' });
+    await page.waitForFunction(expected =>
+        document.getElementById('world-backups-status')?.textContent === expected,
+        'No saved worlds yet. Create one in either edition and Save and Quit to Title.');
+    assert.equal(await page.locator('#world-backups-status').innerText(),
+        'No saved worlds yet. Create one in either edition and Save and Quit to Title.');
+    assert.equal(await page.locator('#world-backups-world').isDisabled(), true);
+    assert.equal(await page.locator('#world-backups-download').isDisabled(), true);
+    if (label === 'root') {
+        assert.equal(await page.evaluate(() => matchMedia('(display-mode: standalone)').matches), true);
+        const viewportAudit = async name => {
+            const geometry = await page.evaluate(() => {
+                const box = element => {
+                    const rect = element.getBoundingClientRect();
+                    return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+                };
+                return {
+                    viewport: { width: innerWidth, height: innerHeight },
+                    dialog: box(document.getElementById('world-backups-dialog')),
+                    close: box(document.getElementById('world-backups-close')),
+                    select: box(document.getElementById('world-backups-world')),
+                    horizontalOverflow: document.getElementById('world-backups-dialog').scrollWidth > document.getElementById('world-backups-dialog').clientWidth
+                };
+            });
+            for (const [control, rect] of [['dialog', geometry.dialog], ['close', geometry.close], ['select', geometry.select]]) {
+                assert.ok(rect.x >= 0 && rect.y >= 0 && rect.right <= geometry.viewport.width && rect.bottom <= geometry.viewport.height,
+                    name + ': ' + control + ' must fit within the viewport');
+                assert.ok(rect.width >= 32 && rect.height >= 24, name + ': ' + control + ' must have usable dimensions');
+            }
+            assert.equal(geometry.horizontalOverflow, false, name + ': dialog content must not overflow horizontally');
+            assert.equal(await page.locator('#world-backups-close').isEnabled(), true);
+            await page.screenshot({ path: path.join(output, 'root-world-backups-' + name + '.png') });
+            return geometry;
+        };
+        const desktop = await viewportAudit('desktop');
+        await page.setViewportSize({ width: 412, height: 844 });
+        assert.equal(await page.evaluate(() => matchMedia('(display-mode: standalone)').matches), true);
+        const narrow = await viewportAudit('412px-viewport');
+        pass('root: backup dialog fits desktop and 412px viewport in installed standalone mode (viewport resize, not device acceptance)', { desktop, narrow });
+    }
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'btn-world-backups');
+
+    await page.locator('#btn-world-backups').click();
+    await page.locator('#world-backups-close').click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'btn-world-backups');
+    assert.equal(await databaseExists(), false, label + ': backup UI must not create the world database');
+    pass(label + ': offline backup empty state creates no world database and Escape/Close restore focus');
+}
+
 async function downloads(page, label) {
     for (const [file, filename] of [['gamefile.html', 'Nexus_JS_Edition.html'], ['gamefilebetter.html', 'Nexus_WASM_GC.html']]) {
         try {
@@ -283,6 +343,14 @@ async function main() {
     await openChrome();
     evidence.persistedInstallations = await Promise.all(installed.map(async manifestId => ({ manifestId, osAppState: await browserCDP.send('PWA.getOsAppState', { manifestId }) })));
     pass('Chrome cold restart uses same isolated profile with process-wide network denied');
+    // Check both scopes before starting either game runtime: the two app paths
+    // share origin storage, and gameplay may create the platform filesystem DB.
+    for (let i = 0; i < scopes.length; i++) {
+        const scope = scopes[i], label = scope ? 'classroom' : 'root', url = base + scope;
+        const page = await launchedPage(url + 'index.html');
+        await worldBackups(page, label);
+        await page.close();
+    }
     for (let i = 0; i < scopes.length; i++) {
         const scope = scopes[i], label = scope ? 'classroom' : 'root', url = base + scope;
         const page = await launchedPage(url + 'index.html');
@@ -310,7 +378,7 @@ async function main() {
     const inspection = await context.newPage();
     await inspection.goto(base + 'index.html');
     const caches = await inspection.evaluate(() => window.caches.keys());
-    for (const scope of ['/', '/classroom/']) assert.ok(caches.includes('nexus-launcher:' + encodeURIComponent(scope) + ':v4'), 'Distinct scoped cache: ' + scope);
+    for (const scope of ['/', '/classroom/']) assert.ok(caches.includes('nexus-launcher:' + encodeURIComponent(scope) + ':v5'), 'Distinct scoped cache: ' + scope);
     pass('Root and classroom installed apps and scope caches coexist', { caches });
     assert.equal(evidence.backend.length, coldStart.backendIndex, 'No backend traffic may bypass offline proxy after cold restart');
     assert.ok(evidence.proxy.slice(coldStart.proxyIndex).every(req => req.action === 'blocked'), 'No successful network after restart');

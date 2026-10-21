@@ -5,7 +5,9 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const source = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i)[1];
+const source = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map(match => match[1]).find(script => script.includes('async function downloadGame('));
+assert.ok(source, 'exercise the actual launcher download handler');
 const base = 'https://example.test/classroom/';
 function launcher(fetch, controlled = true) {
     const saves = [], blobs = [], timers = [], revoked = [];

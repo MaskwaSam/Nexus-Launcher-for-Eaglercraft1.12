@@ -7,7 +7,8 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(process.env.NEXUS_SW_FILE || path.join(root, 'sw.js'), 'utf8');
 const scope = 'https://example.test/classroom/';
-const cacheName = 'nexus-launcher:%2Fclassroom%2F:v4';
+const cacheVersion = 5;
+const cacheName = 'nexus-launcher:%2Fclassroom%2F:v' + cacheVersion;
 
 function worker(caches, fetch = () => { throw new Error('Unexpected network request'); }, registrationScope = scope) {
     const listeners = new Map();
@@ -37,6 +38,7 @@ async function installed(registrationScope = scope) {
 test('precache uses real distribution files and the unchanged manifest start URL', async () => {
     const { name, assets } = await installed();
     assert.equal(name, cacheName);
+    assert.equal(assets.length, 16);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json')));
     assert.ok(assets.some(asset => new URL(asset, scope).href === new URL(manifest.start_url, scope).href));
     for (const asset of assets) {
@@ -79,7 +81,7 @@ test('cache identity separates installations at different paths and avoids legac
     const rootCache = await installed('https://example.test/');
     const classroomCache = await installed();
     const nestedCache = await installed('https://example.test/classroom/nexus/');
-    assert.equal(rootCache.name, 'nexus-launcher:%2F:v4');
+    assert.equal(rootCache.name, 'nexus-launcher:%2F:v5');
     assert.equal(classroomCache.name, cacheName);
     assert.equal(new Set([rootCache.name, classroomCache.name, nestedCache.name]).size, 3);
     for (const { name } of [rootCache, classroomCache, nestedCache]) assert.equal(name.startsWith('nexus-launcher-'), false);
@@ -89,12 +91,13 @@ test('activation removes only obsolete numeric versions owned by this scope', as
     const deleted = [];
     const dispatch = worker({
         keys: async () => ['teacher-offline-v5', 'nexus-launcher-v1', 'nexus-launcher-v2', 'nexus-launcher-v3',
-            'nexus-launcher:%2F:v3', 'nexus-launcher:%2F:v4', 'nexus-launcher:%2Fclassroom%2F:v3',
-            cacheName, 'nexus-launcher:%2Fclassroom%2F:v5-preview', 'nexus-launcher-videos'],
+            'nexus-launcher:%2F:v3', 'nexus-launcher:%2F:v4', 'nexus-launcher:%2F:v5',
+            'nexus-launcher:%2Fclassroom%2F:v3', 'nexus-launcher:%2Fclassroom%2F:v4',
+            cacheName, 'nexus-launcher:%2Fclassroom%2F:v6-preview', 'nexus-launcher:%2Fclassroom-nested%2F:v4', 'nexus-launcher-videos'],
         delete: async name => { deleted.push(name); return true; }
     });
     await dispatch('activate');
-    assert.deepEqual(deleted, ['nexus-launcher:%2Fclassroom%2F:v3']);
+    assert.deepEqual(deleted, ['nexus-launcher:%2Fclassroom%2F:v3', 'nexus-launcher:%2Fclassroom%2F:v4']);
 });
 
 test('fetch uses only the current scope cache and preserves exact network fallback', async () => {

@@ -1,7 +1,7 @@
 const SCOPE_URL = new URL(self.registration.scope);
 const START_URL = new URL('./index.html', SCOPE_URL).href;
 const CACHE_PREFIX = `nexus-launcher:${encodeURIComponent(SCOPE_URL.pathname)}:v`;
-const CACHE_NAME = CACHE_PREFIX + '4';
+const CACHE_NAME = CACHE_PREFIX + '5';
 const ASSETS_TO_CACHE = [
     './index.html',
     './manifest.json',
@@ -11,6 +11,10 @@ const ASSETS_TO_CACHE = [
     './assets/fonts.css',
     './assets/fonts/inter-latin.woff2',
     './assets/fonts/orbitron-latin.woff2',
+    './assets/world-backups.js',
+    './assets/epk-import-guard.js',
+    './assets/world-backups-ui.js',
+    './assets/world-backups.css',
     './gamerz.png',
     './eagle192.png',
     './eagle512.png',

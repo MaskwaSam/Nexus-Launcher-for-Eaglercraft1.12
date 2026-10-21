@@ -12,13 +12,14 @@ const output = process.env.NEXUS_SW_BROWSER_OUTPUT || fs.mkdtempSync(path.join(o
 fs.mkdirSync(output, { recursive: true });
 const candidate = fs.readFileSync(process.env.NEXUS_SW_FILE || path.join(root, 'sw.js'));
 const candidateSource = candidate.toString('utf8');
+const CACHE_VERSION = 5;
 const precache = candidateSource.match(/const ASSETS_TO_CACHE\s*=\s*\[([\s\S]*?)\];/);
 if (!precache) throw new Error('Candidate service worker has no recognizable ASSETS_TO_CACHE array');
 const assets = [...precache[1].matchAll(/["']([^"']+)["']/g)].map(match => match[1].replace(/^\.\//, ''));
-if (assets.length !== 12) throw new Error(`Expected 12 candidate precache assets, found ${assets.length}`);
+if (assets.length !== 16) throw new Error(`Expected 16 candidate precache assets, found ${assets.length}`);
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const expected = Object.fromEntries(assets.map(file => [file, hash(fs.readFileSync(path.join(root, file)))]));
-const scopedCacheName = (base, version = 4) => `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v${version}`;
+const scopedCacheName = (base, version = CACHE_VERSION) => `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v${version}`;
 const results = { checks: [], requests: [], limitations: [
     'Local Chromium automation, not an installed-PWA or physical-device acceptance test.',
     'Offline checks cover the candidate service worker precache and exact navigation aliases; other uncached paths require network.'
@@ -37,6 +38,22 @@ self.addEventListener('fetch', event => event.respondWith(caches.match(event.req
 const legacyMarker = Buffer.from('<!-- legacy layout fixture -->\n');
 let phase = '', distribution = 'candidate', failAsset = false, legacyVersion = 1;
 let origin;
+
+function scopedV4() {
+    return `const SCOPE_URL = new URL(self.registration.scope);
+const START_URL = new URL('./index.html', SCOPE_URL).href;
+const CACHE_PREFIX = 'nexus-launcher:' + encodeURIComponent(SCOPE_URL.pathname) + ':v';
+const CACHE_NAME = CACHE_PREFIX + '4';
+const ASSETS_TO_CACHE = ['./index.html', './manifest.json', './gamefile.html', './gamefilebetter.html', './assets/tailwind.css', './assets/fonts.css', './assets/fonts/inter-latin.woff2', './assets/fonts/orbitron-latin.woff2', './gamerz.png', './eagle192.png', './eagle512.png', './apple-touch-icon.png'];
+self.addEventListener('install', event => event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS_TO_CACHE))));
+self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && /^[0-9]+$/.test(key.slice(CACHE_PREFIX.length)) && key !== CACHE_NAME).map(key => caches.delete(key))))));
+self.addEventListener('fetch', event => {
+    const request = event.request, url = new URL(request.url);
+    const isLauncherNavigation = request.method === 'GET' && request.mode === 'navigate' && url.origin === SCOPE_URL.origin && (url.pathname === SCOPE_URL.pathname || url.pathname === new URL(START_URL).pathname);
+    const lookup = isLauncherNavigation ? START_URL : request;
+    event.respondWith(caches.open(CACHE_NAME).then(cache => cache.match(lookup)).then(response => response || fetch(request)));
+});`;
+}
 
 async function contextFor(browser) {
     const context = await browser.newContext();
@@ -62,7 +79,7 @@ async function seedPreserved(page, base) {
         await other.put(base + 'network-only.txt', new Response('unrelated cached network response'));
         await (await caches.open('nexus-launcher-videos')).put(base + 'video', new Response('keep video'));
         const scoped = `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v`;
-        for (const version of [1, 2, 3]) await (await caches.open(scoped + version)).put(base + 'obsolete-scoped-' + version, new Response('obsolete scoped cache'));
+        for (const version of [1, 2, 3, 4]) await (await caches.open(scoped + version)).put(base + 'obsolete-scoped-' + version, new Response('obsolete scoped cache'));
         await (await caches.open('nexus-launcher:%2Fforeign%2F:v4')).put(base + 'foreign-scope', new Response('keep foreign scope'));
         for (const version of [1, 2, 3]) await (await caches.open('nexus-launcher-v' + version)).put(base + 'legacy-global-' + version, new Response('keep legacy global'));
         localStorage.setItem('nexus-sw-preservation', 'saved preference sentinel');
@@ -88,9 +105,11 @@ async function preserved(page, base) {
         const video = await (await caches.open('nexus-launcher-videos')).match(base + 'video');
         const scopedPrefix = `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v`;
         const obsoleteScoped = {};
-        for (const version of [1, 2, 3]) {
+        const scopedCachePresent = {};
+        for (const version of [1, 2, 3, 4]) {
             const name = scopedPrefix + version;
-            obsoleteScoped[version] = await caches.has(name) ? await (await caches.open(name)).match(base + 'obsolete-scoped-' + version) : null;
+            scopedCachePresent[version] = await caches.has(name);
+            obsoleteScoped[version] = scopedCachePresent[version] ? await (await caches.open(name)).match(base + 'obsolete-scoped-' + version) : null;
         }
         const foreign = await (await caches.open('nexus-launcher:%2Fforeign%2F:v4')).match(base + 'foreign-scope');
         const legacyGlobal = {};
@@ -107,6 +126,7 @@ async function preserved(page, base) {
         });
         return {
             preference, world, other: other && await other.text(), video: video && await video.text(),
+            scopedCachePresent,
             obsoleteScoped: Object.fromEntries(await Promise.all(Object.entries(obsoleteScoped).map(async ([version, response]) => [version, response && await response.text()]))),
             foreign: foreign && await foreign.text(),
             legacyGlobal: Object.fromEntries(await Promise.all(Object.entries(legacyGlobal).map(async ([version, response]) => [version, response && await response.text()])))
@@ -114,14 +134,14 @@ async function preserved(page, base) {
     }, base);
     assert.deepEqual(actual, {
         preference: 'saved preference sentinel', world: 'saved world sentinel', other: 'unrelated cached index', video: 'keep video',
-        obsoleteScoped: { 1: null, 2: null, 3: null }, foreign: 'keep foreign scope',
+        scopedCachePresent: { 1: false, 2: false, 3: false, 4: false },
+        obsoleteScoped: { 1: null, 2: null, 3: null, 4: null }, foreign: 'keep foreign scope',
         legacyGlobal: { 1: 'keep legacy global', 2: 'keep legacy global', 3: 'keep legacy global' }
     });
 }
 
 async function candidateCache(page, base) {
-    const actual = await page.evaluate(async base => {
-        const cacheName = `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v4`;
+    const actual = await page.evaluate(async ({ base, cacheName }) => {
         const cache = await caches.open(cacheName);
         const entries = {};
         const contentTypes = {};
@@ -133,10 +153,14 @@ async function candidateCache(page, base) {
             contentTypes[file] = response.headers.get('content-type');
         }
         return { entries, contentTypes };
-    }, base);
+    }, { base, cacheName: scopedCacheName(base) });
     assert.deepEqual(actual.entries, expected);
     for (const [file, contentType] of Object.entries({
         'assets/tailwind.css': 'text/css', 'assets/fonts.css': 'text/css',
+        'assets/world-backups.css': 'text/css',
+        'assets/epk-import-guard.js': 'application/javascript',
+        'assets/world-backups-ui.js': 'application/javascript',
+        'assets/world-backups.js': 'application/javascript',
         'gamerz.png': 'image/png', 'eagle192.png': 'image/png', 'eagle512.png': 'image/png',
         'apple-touch-icon.png': 'image/png',
         'assets/fonts/inter-latin.woff2': 'font/woff2', 'assets/fonts/orbitron-latin.woff2': 'font/woff2'
@@ -193,12 +217,12 @@ async function fresh(browser, prefix) {
         check(phase + ': precache installs and controls the launcher without requesting launcher.html');
         await candidateCache(page, base);
         assert.equal(await page.evaluate(name => caches.has(name), scopedCacheName(base)), true);
-        check(phase + ': all 12 source-listed cached responses equal candidate bytes; only obsolete same-scope caches removed');
+        check(phase + ': all 16 source-listed cached responses equal candidate bytes; only obsolete same-scope caches removed');
         await preserved(page, base);
         assert.equal(await page.evaluate(async url => (await fetch(url)).text(), base + 'network-only.txt'), 'network fallback');
         check(phase + ': unrelated caches and saved-data sentinels survive; cache miss uses network');
         await offlineCore(context, page, base);
-        check(phase + ': root, query, and index navigations plus 12 cached responses work offline; exact misses fail');
+        check(phase + ': root, query, and index navigations plus 16 cached responses work offline; exact misses fail');
     } finally { await context.close(); }
 }
 
@@ -263,14 +287,15 @@ async function update(page) {
     });
 }
 
-async function upgrade(browser, version) {
-    phase = 'upgrade-v' + version; distribution = 'legacy'; failAsset = false; legacyVersion = version;
-    const oldCache = 'nexus-launcher-v' + version;
+async function upgrade(browser, version, scoped = false) {
+    phase = 'upgrade-' + (scoped ? 'scoped-v' : 'v') + version;
+    distribution = scoped ? 'scoped-v4' : 'legacy'; failAsset = false; legacyVersion = version;
     const base = origin + '/classroom/';
+    const oldCache = scoped ? scopedCacheName(base, version) : 'nexus-launcher-v' + version;
     const context = await contextFor(browser);
     try {
         const page = await context.newPage();
-        await page.goto(base + (version === 1 ? 'launcher.html' : 'index.html'), { waitUntil: 'domcontentloaded' });
+        await page.goto(base + (!scoped && version === 1 ? 'launcher.html' : 'index.html'), { waitUntil: 'domcontentloaded' });
         await activated(page);
         await page.reload({ waitUntil: 'domcontentloaded' });
         await page.evaluate(() => { window.oldController = navigator.serviceWorker.controller; });
@@ -291,7 +316,15 @@ async function upgrade(browser, version) {
         assert.equal(await update(page), 'redundant');
         assert.ok(await page.evaluate(async oldCache => (await navigator.serviceWorker.getRegistration()).active && await caches.has(oldCache), oldCache));
         assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting), null);
-        assert.deepEqual(await page.evaluate(async name => (await (await caches.open(name)).keys()).map(request => request.url), scopedCacheName(base)), []);
+        assert.deepEqual(await page.evaluate(async name => ({
+            exists: await caches.has(name),
+            keys: await (await caches.open(name)).keys().then(requests => requests.map(request => request.url))
+        }), scopedCacheName(base)), { exists: true, keys: [] });
+        assert.equal(await page.evaluate(async ({ base, name }) => {
+            if (!await caches.has(name)) return 'cache missing';
+            const response = await (await caches.open(name)).match(base + 'obsolete-scoped-4');
+            return response && await response.text();
+        }, { base, name: scopedCacheName(base, 4) }), 'obsolete scoped cache');
         assert.equal(await runtimePrefix(), legacyRuntime);
         check(phase + ': failed precache rejects update and leaves active runtime usable');
         failAsset = false;
@@ -299,8 +332,13 @@ async function upgrade(browser, version) {
         assert.ok(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting?.state === 'installed' && navigator.serviceWorker.controller === window.oldController));
         assert.ok(await iframe.evaluate(() => navigator.serviceWorker.controller === window.oldController));
         await candidateCache(page, base);
+        assert.equal(await page.evaluate(async ({ base, name }) => {
+            if (!await caches.has(name)) return 'cache missing';
+            const response = await (await caches.open(name)).match(base + 'obsolete-scoped-4');
+            return response && await response.text();
+        }, { base, name: scopedCacheName(base, 4) }), 'obsolete scoped cache');
         assert.equal(await runtimePrefix(), legacyRuntime);
-        check(phase + ': candidate waits while existing page and iframe retain the old controller and runtime');
+        check(phase + ': candidate waits, retains scoped v4 while existing page and iframe retain the old controller and runtime');
         const holder = await context.newPage();
         await holder.goto(base + 'probe.html');
         await page.close();
@@ -311,7 +349,7 @@ async function upgrade(browser, version) {
         const reopened = await context.newPage();
         await reopened.goto(base + 'index.html', { waitUntil: 'domcontentloaded' });
         await activated(reopened);
-        assert.equal(await reopened.evaluate(oldCache => caches.has(oldCache), oldCache), true);
+        assert.equal(await reopened.evaluate(oldCache => caches.has(oldCache), oldCache), !scoped);
         await reopened.reload({ waitUntil: 'domcontentloaded' });
         assert.ok(await reopened.evaluate(() => navigator.serviceWorker.controller));
         await preserved(reopened, base);
@@ -326,7 +364,7 @@ async function upgrade(browser, version) {
         const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
         const relative = pathname.replace(/^\/classroom\//, '/').slice(1) || 'index.html';
         let bytes, status = 200;
-        if (relative === 'sw.js') bytes = distribution === 'legacy' ? Buffer.from(legacy(legacyVersion)) : candidate;
+        if (relative === 'sw.js') bytes = distribution === 'scoped-v4' ? Buffer.from(scopedV4()) : distribution === 'legacy' ? Buffer.from(legacy(legacyVersion)) : candidate;
         else if (relative === 'probe.html') bytes = Buffer.from('<!doctype html><title>Service worker probe</title>');
         else if (relative === 'network-only.txt') bytes = Buffer.from('network fallback');
         else if (relative === 'launcher.html' && distribution === 'legacy') bytes = Buffer.concat([legacyMarker, fs.readFileSync(path.join(root, 'index.html'))]);
@@ -336,7 +374,7 @@ async function upgrade(browser, version) {
             if (!filename.startsWith(root + path.sep) || !fs.existsSync(filename) || !fs.statSync(filename).isFile()) { status = 404; bytes = Buffer.from('Not found'); }
             else {
                 bytes = fs.readFileSync(filename);
-                if (distribution === 'legacy' && relative.endsWith('.html')) bytes = Buffer.concat([legacyMarker, bytes]);
+                if (distribution !== 'candidate' && relative.endsWith('.html')) bytes = Buffer.concat([legacyMarker, bytes]);
             }
         }
         results.requests.push({ phase, path: pathname, status });
@@ -358,6 +396,7 @@ async function upgrade(browser, version) {
         await upgrade(browser, 1);
         await upgrade(browser, 2);
         await upgrade(browser, 3);
+        await upgrade(browser, 4, true);
     } catch (error) { results.checks.push({ name: phase, status: 'fail', error: error.stack }); console.error(error); process.exitCode = 1; }
     finally {
         if (browser) await browser.close();

@@ -275,7 +275,7 @@ async function mobile(browser, url, edition, direct = false) {
             results.requests404.push(pathname); response.writeHead(404); response.end(); return;
         }
         const extension = path.extname(file);
-        response.setHeader('Content-Type', { '.html': 'text/html', '.js': 'application/javascript', '.png': 'image/png', '.json': 'application/json' }[extension] || 'application/octet-stream');
+        response.setHeader('Content-Type', { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' }[extension] || 'application/octet-stream');
         fs.createReadStream(file).pipe(response);
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
