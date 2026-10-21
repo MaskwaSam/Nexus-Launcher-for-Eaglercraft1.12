@@ -107,6 +107,22 @@ async function wasmCanvasInput() {
     };
 }
 
+for (const [edition, source] of [['JS', runtime], ['WASM', wasm]]) {
+    test(`${edition} launch options preserve upstream warning defaults and stored settings`, () => {
+        const script = source.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1];
+        const writes = [];
+        const context = vm.createContext({ window: { localStorage: {
+            getItem() { throw new Error('launch options must not read or rewrite saved settings'); },
+            setItem(...args) { writes.push(args); }
+        } }, Math });
+        vm.runInContext(script, context);
+        assert.equal(context.window.eaglercraftXOpts.worldsDB, 'worlds');
+        assert.equal(context.window.eaglercraftXOpts.container, 'game_frame');
+        assert.deepEqual(writes, []);
+        assert.doesNotMatch(script, /hasHiddenPhishWarning|hideDefaultUsernameWarning|suppressEagler/);
+    });
+}
+
 function runtimeFunction(name) {
     const match = runtime.match(new RegExp('function ' + name + '\\([\\s\\S]*?(?=\\n(?:function |var ))'));
     return match ? match[0] : '';
