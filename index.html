@@ -8,11 +8,11 @@
     <!-- PWA Manifest Link -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#242424">
+    <link rel="icon" type="image/png" href="eagle192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
     
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="assets/fonts.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Orbitron:wght@400;700&display=swap');
-
         :root {
             --mc-dark: #242424;
             --mc-green: #3c8527;
@@ -322,6 +322,7 @@
             z-index: 210;
         }
     </style>
+    <link rel="stylesheet" href="assets/tailwind.css">
 </head>
 <body>
 
@@ -443,10 +444,10 @@
 
         <div id="offline-downloads-section" class="section-title">Offline Downloads</div>
         <div class="btn-group">
-            <a href="gamefile.html" download="Nexus_JS_Edition.html" class="mc-btn btn-download flex items-center justify-center">
+            <a href="gamefile.html" download="Nexus_JS_Edition.html" onclick="downloadGame(event, this)" class="mc-btn btn-download flex items-center justify-center">
                 Download JS
             </a>
-            <a href="gamefilebetter.html" download="Nexus_WASM_GC.html" class="mc-btn btn-download flex items-center justify-center">
+            <a href="gamefilebetter.html" download="Nexus_WASM_GC.html" onclick="downloadGame(event, this)" class="mc-btn btn-download flex items-center justify-center">
                 Download WASM
             </a>
         </div>
@@ -454,6 +455,36 @@
     </main>
 
     <script>
+        // Native download requests can bypass the worker; fetch uses its exact cached response.
+        async function downloadGame(event, link) {
+            if (!navigator.serviceWorker?.controller || event.defaultPrevented || event.button > 0 ||
+                event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            if (link.dataset.downloading) return;
+            link.dataset.downloading = 'true';
+            let objectURL;
+            function save(href) {
+                const anchor = document.createElement('a');
+                anchor.href = href;
+                anchor.download = link.download;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+            }
+            try {
+                const response = await fetch(link.href);
+                if (!response.ok) throw new Error(`Download returned ${response.status}`);
+                objectURL = URL.createObjectURL(await response.blob());
+                save(objectURL);
+            } catch (error) {
+                console.warn('Cached download unavailable; trying the original link:', error);
+                save(link.href);
+            } finally {
+                delete link.dataset.downloading;
+                if (objectURL) setTimeout(() => URL.revokeObjectURL(objectURL), 60000);
+            }
+        }
+
         /**
          * About Page Visibility Logic
          */

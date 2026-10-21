@@ -11,15 +11,20 @@ const root = path.join(__dirname, '..');
 const output = process.env.NEXUS_SW_BROWSER_OUTPUT || fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-sw-'));
 fs.mkdirSync(output, { recursive: true });
 const candidate = fs.readFileSync(process.env.NEXUS_SW_FILE || path.join(root, 'sw.js'));
-const assets = ['index.html', 'manifest.json', 'gamefile.html', 'gamefilebetter.html'];
+const candidateSource = candidate.toString('utf8');
+const precache = candidateSource.match(/const ASSETS_TO_CACHE\s*=\s*\[([\s\S]*?)\];/);
+if (!precache) throw new Error('Candidate service worker has no recognizable ASSETS_TO_CACHE array');
+const assets = [...precache[1].matchAll(/["']([^"']+)["']/g)].map(match => match[1].replace(/^\.\//, ''));
+if (assets.length !== 12) throw new Error(`Expected 12 candidate precache assets, found ${assets.length}`);
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const expected = Object.fromEntries(assets.map(file => [file, hash(fs.readFileSync(path.join(root, file)))]));
+const scopedCacheName = (base, version = 4) => `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v${version}`;
 const results = { checks: [], requests: [], limitations: [
     'Local Chromium automation, not an installed-PWA or physical-device acceptance test.',
-    'Only the manifest start URL index.html and the existing core precache are covered offline; directory navigation, external styles/fonts and other uncached assets still need network.'
+    'Offline checks cover the candidate service worker precache and exact navigation aliases; other uncached paths require network.'
 ] };
 const check = name => { results.checks.push({ name, status: 'pass' }); console.log('PASS ' + name); };
-// Model v1's older layout and main's v2 cache, including their global lookup.
+// Model the legacy global-cache layouts, including the v1 launcher.html shell.
 function legacy(version) {
     const files = [version === 1 ? './launcher.html' : './index.html', './manifest.json', './gamefile.html', './gamefilebetter.html'];
     const cleanup = version === 1 ? 'key !== CACHE_NAME' : "key.startsWith('nexus-launcher-') && key !== CACHE_NAME";
@@ -56,6 +61,10 @@ async function seedPreserved(page, base) {
         await other.put(base + 'index.html', new Response('unrelated cached index'));
         await other.put(base + 'network-only.txt', new Response('unrelated cached network response'));
         await (await caches.open('nexus-launcher-videos')).put(base + 'video', new Response('keep video'));
+        const scoped = `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v`;
+        for (const version of [1, 2, 3]) await (await caches.open(scoped + version)).put(base + 'obsolete-scoped-' + version, new Response('obsolete scoped cache'));
+        await (await caches.open('nexus-launcher:%2Fforeign%2F:v4')).put(base + 'foreign-scope', new Response('keep foreign scope'));
+        for (const version of [1, 2, 3]) await (await caches.open('nexus-launcher-v' + version)).put(base + 'legacy-global-' + version, new Response('keep legacy global'));
         localStorage.setItem('nexus-sw-preservation', 'saved preference sentinel');
         await new Promise((resolve, reject) => {
             const request = indexedDB.open('nexus-sw-world-sentinel', 1);
@@ -77,6 +86,15 @@ async function preserved(page, base) {
         const preference = localStorage.getItem('nexus-sw-preservation');
         const other = await (await caches.open('teacher-offline-v5')).match(base + 'index.html');
         const video = await (await caches.open('nexus-launcher-videos')).match(base + 'video');
+        const scopedPrefix = `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v`;
+        const obsoleteScoped = {};
+        for (const version of [1, 2, 3]) {
+            const name = scopedPrefix + version;
+            obsoleteScoped[version] = await caches.has(name) ? await (await caches.open(name)).match(base + 'obsolete-scoped-' + version) : null;
+        }
+        const foreign = await (await caches.open('nexus-launcher:%2Fforeign%2F:v4')).match(base + 'foreign-scope');
+        const legacyGlobal = {};
+        for (const version of [1, 2, 3]) legacyGlobal[version] = await (await caches.open('nexus-launcher-v' + version)).match(base + 'legacy-global-' + version);
         const world = await new Promise((resolve, reject) => {
             const request = indexedDB.open('nexus-sw-world-sentinel', 1);
             request.onerror = () => reject(request.error);
@@ -87,27 +105,50 @@ async function preserved(page, base) {
                 read.onerror = () => { db.close(); reject(read.error); };
             };
         });
-        return { preference, world, other: other && await other.text(), video: video && await video.text() };
+        return {
+            preference, world, other: other && await other.text(), video: video && await video.text(),
+            obsoleteScoped: Object.fromEntries(await Promise.all(Object.entries(obsoleteScoped).map(async ([version, response]) => [version, response && await response.text()]))),
+            foreign: foreign && await foreign.text(),
+            legacyGlobal: Object.fromEntries(await Promise.all(Object.entries(legacyGlobal).map(async ([version, response]) => [version, response && await response.text()])))
+        };
     }, base);
-    assert.deepEqual(actual, { preference: 'saved preference sentinel', world: 'saved world sentinel', other: 'unrelated cached index', video: 'keep video' });
+    assert.deepEqual(actual, {
+        preference: 'saved preference sentinel', world: 'saved world sentinel', other: 'unrelated cached index', video: 'keep video',
+        obsoleteScoped: { 1: null, 2: null, 3: null }, foreign: 'keep foreign scope',
+        legacyGlobal: { 1: 'keep legacy global', 2: 'keep legacy global', 3: 'keep legacy global' }
+    });
 }
 
 async function candidateCache(page, base) {
     const actual = await page.evaluate(async base => {
-        const cache = await caches.open('nexus-launcher-v3');
+        const cacheName = `nexus-launcher:${encodeURIComponent(new URL(base).pathname)}:v4`;
+        const cache = await caches.open(cacheName);
         const entries = {};
+        const contentTypes = {};
         for (const request of await cache.keys()) {
             const response = await cache.match(request);
             const bytes = await response.arrayBuffer();
-            entries[new URL(request.url).pathname.slice(new URL(base).pathname.length)] = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), value => value.toString(16).padStart(2, '0')).join('');
+            const file = new URL(request.url).pathname.slice(new URL(base).pathname.length);
+            entries[file] = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), value => value.toString(16).padStart(2, '0')).join('');
+            contentTypes[file] = response.headers.get('content-type');
         }
-        return entries;
+        return { entries, contentTypes };
     }, base);
-    assert.deepEqual(actual, expected);
+    assert.deepEqual(actual.entries, expected);
+    for (const [file, contentType] of Object.entries({
+        'assets/tailwind.css': 'text/css', 'assets/fonts.css': 'text/css',
+        'gamerz.png': 'image/png', 'eagle192.png': 'image/png', 'eagle512.png': 'image/png',
+        'apple-touch-icon.png': 'image/png',
+        'assets/fonts/inter-latin.woff2': 'font/woff2', 'assets/fonts/orbitron-latin.woff2': 'font/woff2'
+    })) assert.match(actual.contentTypes[file], new RegExp('^' + contentType.replace('/', '\\/')));
 }
 
 async function offlineCore(context, page, base) {
     await context.setOffline(true);
+    await page.goto(base, { waitUntil: 'domcontentloaded' });
+    assert.equal(await page.locator('#btn-js').count(), 1);
+    await page.goto(base + 'index.html?launch', { waitUntil: 'domcontentloaded' });
+    assert.equal(await page.locator('#btn-wasm').count(), 1);
     await page.goto(base + 'index.html', { waitUntil: 'domcontentloaded' });
     assert.equal(await page.locator('#btn-js').count(), 1);
     assert.equal(await page.locator('#btn-wasm').count(), 1);
@@ -123,6 +164,15 @@ async function offlineCore(context, page, base) {
         return entries;
     }, { base, assets });
     assert.deepEqual(actual, expected);
+    const misses = await page.evaluate(async base => {
+        const result = {};
+        for (const path of ['gamefile.html?offline-miss=1', 'not-cached.html']) {
+            try { await fetch(base + path); result[path] = 'unexpected response'; }
+            catch { result[path] = 'network failure'; }
+        }
+        return result;
+    }, base);
+    assert.deepEqual(misses, { 'gamefile.html?offline-miss=1': 'network failure', 'not-cached.html': 'network failure' });
     await context.setOffline(false);
 }
 
@@ -135,9 +185,6 @@ async function fresh(browser, prefix) {
         const page = await context.newPage();
         await page.goto(base + 'probe.html');
         await seedPreserved(page, base);
-        await page.evaluate(async base => {
-            for (const version of [1, 2]) await (await caches.open('nexus-launcher-v' + version)).put(base + 'index.html', new Response('obsolete index'));
-        }, base);
         await page.goto(base + 'index.html', { waitUntil: 'domcontentloaded' });
         await activated(page);
         await page.reload({ waitUntil: 'domcontentloaded' });
@@ -145,14 +192,54 @@ async function fresh(browser, prefix) {
         assert.equal(results.requests.filter(item => item.phase === phase && item.path.endsWith('/launcher.html')).length, 0);
         check(phase + ': precache installs and controls the launcher without requesting launcher.html');
         await candidateCache(page, base);
-        assert.equal(await page.evaluate(() => caches.has('nexus-launcher-v1')), false);
-        assert.equal(await page.evaluate(() => caches.has('nexus-launcher-v2')), false);
-        check(phase + ': all four cached responses equal candidate bytes; obsolete cache removed');
+        assert.equal(await page.evaluate(name => caches.has(name), scopedCacheName(base)), true);
+        check(phase + ': all 12 source-listed cached responses equal candidate bytes; only obsolete same-scope caches removed');
         await preserved(page, base);
         assert.equal(await page.evaluate(async url => (await fetch(url)).text(), base + 'network-only.txt'), 'network fallback');
         check(phase + ': unrelated caches and saved-data sentinels survive; cache miss uses network');
         await offlineCore(context, page, base);
-        check(phase + ': offline manifest-start navigation and both runtime responses equal candidate bytes');
+        check(phase + ': root, query, and index navigations plus 12 cached responses work offline; exact misses fail');
+    } finally { await context.close(); }
+}
+
+async function coexist(browser) {
+    phase = 'scope-coexistence'; distribution = 'candidate'; failAsset = false;
+    const rootBase = origin + '/';
+    const childBase = origin + '/classroom/';
+    const context = await contextFor(browser);
+    try {
+        const rootPage = await context.newPage();
+        await rootPage.goto(rootBase + 'probe.html');
+        await seedPreserved(rootPage, rootBase);
+        await rootPage.goto(rootBase + 'index.html', { waitUntil: 'domcontentloaded' });
+        await activated(rootPage);
+        await rootPage.reload({ waitUntil: 'domcontentloaded' });
+        await rootPage.evaluate(async () => {
+            await navigator.serviceWorker.register('/classroom/sw.js', { scope: '/classroom/' });
+            const deadline = Date.now() + 60000;
+            while (Date.now() < deadline) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                if (registrations.some(registration => registration.scope.endsWith('/classroom/') && registration.active?.state === 'activated')) return;
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            throw new Error('Subdirectory service worker did not activate');
+        });
+        const childPage = await context.newPage();
+        await childPage.goto(childBase + 'index.html', { waitUntil: 'domcontentloaded' });
+        await activated(childPage);
+        await childPage.reload({ waitUntil: 'domcontentloaded' });
+        assert.equal(new URL(await childPage.evaluate(() => navigator.serviceWorker.controller.scriptURL)).pathname, '/classroom/sw.js');
+        await candidateCache(rootPage, rootBase);
+        await candidateCache(childPage, childBase);
+        assert.equal(await rootPage.evaluate(name => caches.has(name), scopedCacheName(rootBase)), true);
+        assert.equal(await childPage.evaluate(name => caches.has(name), scopedCacheName(childBase)), true);
+        await context.setOffline(true);
+        await rootPage.goto(rootBase, { waitUntil: 'domcontentloaded' });
+        await childPage.goto(childBase, { waitUntil: 'domcontentloaded' });
+        assert.equal(await rootPage.locator('#btn-js').count(), 1);
+        assert.equal(await childPage.locator('#btn-js').count(), 1);
+        await context.setOffline(false);
+        check('root and /classroom/ registrations keep distinct scoped caches and both navigate offline');
     } finally { await context.close(); }
 }
 
@@ -204,7 +291,7 @@ async function upgrade(browser, version) {
         assert.equal(await update(page), 'redundant');
         assert.ok(await page.evaluate(async oldCache => (await navigator.serviceWorker.getRegistration()).active && await caches.has(oldCache), oldCache));
         assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting), null);
-        assert.deepEqual(await page.evaluate(async () => (await (await caches.open('nexus-launcher-v3')).keys()).map(request => request.url)), []);
+        assert.deepEqual(await page.evaluate(async name => (await (await caches.open(name)).keys()).map(request => request.url), scopedCacheName(base)), []);
         assert.equal(await runtimePrefix(), legacyRuntime);
         check(phase + ': failed precache rejects update and leaves active runtime usable');
         failAsset = false;
@@ -224,11 +311,11 @@ async function upgrade(browser, version) {
         const reopened = await context.newPage();
         await reopened.goto(base + 'index.html', { waitUntil: 'domcontentloaded' });
         await activated(reopened);
-        assert.equal(await reopened.evaluate(oldCache => caches.has(oldCache), oldCache), false);
+        assert.equal(await reopened.evaluate(oldCache => caches.has(oldCache), oldCache), true);
         await reopened.reload({ waitUntil: 'domcontentloaded' });
         assert.ok(await reopened.evaluate(() => navigator.serviceWorker.controller));
         await preserved(reopened, base);
-        check(phase + ': normal activation removes only obsolete launcher cache and preserves saved-data sentinels');
+        check(phase + ': activation preserves legacy globals and foreign scopes, removes only same-scope numeric caches, and preserves saved data');
         await offlineCore(context, reopened, base);
         check(phase + ': reopened offline launcher and runtimes use candidate bytes');
     } finally { await context.close(); }
@@ -253,7 +340,10 @@ async function upgrade(browser, version) {
             }
         }
         results.requests.push({ phase, path: pathname, status });
-        response.writeHead(status, { 'Cache-Control': 'no-store', 'Content-Type': ({ '.html': 'text/html', '.js': 'application/javascript', '.json': 'application/json' })[path.extname(relative)] || 'text/plain' });
+        response.writeHead(status, { 'Cache-Control': 'no-store', 'Content-Type': ({
+            '.html': 'text/html', '.js': 'application/javascript', '.json': 'application/json', '.css': 'text/css',
+            '.png': 'image/png', '.woff2': 'font/woff2'
+        })[path.extname(relative)] || 'text/plain' });
         response.end(bytes);
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -264,8 +354,10 @@ async function upgrade(browser, version) {
         results.browserVersion = browser.version(); results.expectedAssetHashes = expected;
         await fresh(browser, '/');
         await fresh(browser, '/classroom/');
+        await coexist(browser);
         await upgrade(browser, 1);
         await upgrade(browser, 2);
+        await upgrade(browser, 3);
     } catch (error) { results.checks.push({ name: phase, status: 'fail', error: error.stack }); console.error(error); process.exitCode = 1; }
     finally {
         if (browser) await browser.close();
