@@ -2507,7 +2507,28 @@ function DvP(){var b,c,d,e,f,$$je,$p,$z;$p=0;if(FZ()){var $T=Ds();$p=$T.l();f=$T
 =HIv;if(b!==null){HId.removeEventListener("focus",C_(b,"handleEvent"));HIv=null;}b=HIw;if(b!==null){HId.removeEventListener("blur",C_(b,"handleEvent"));HIw=null;}b=HIu;if(b!==null){HIf.removeEventListener("wheel",C_(b,"handleEvent"));HIu=null;}if(HIx!==null){c=HId.document;d=HIx;c.removeEventListener("pointerlockchange",C_(d,"handleEvent"));HIx=null;}if(HIy!==null){c=HId.document;d=HIy;c.removeEventListener("pointerlockerror",C_(d,"handleEvent"));HIy=null;}b=HIz;if(b!==null){HJh.removeEventListener("change",
 b);HIz=null;}e=HJd;if(e!=(-1)){$rt_globals.clearTimeout(e);HJd=(-1);}f=HJm;if(f!=(-1)){a:{try{$rt_globals.clearInterval(f);break a;}catch($$e){$$je=F($$e);if($$je instanceof K){}else{throw $$e;}}}HJm=(-1);}try{b=HId.document;$p=1;continue _;}catch($$e){$$je=F($$e);if($$je instanceof K){}else{throw $$e;}}b=HId;LJ();d=HA7;if(d!==null){b.removeEventListener("error",$rt_globals.evtHandler);HA7=null;}return;case 1:b:{try{GrU(b);if(B()){break _;}break b;}catch($$e){$$je=F($$e);if($$je instanceof K){}else{throw $$e;}}}b
 =HId;LJ();d=HA7;if(d!==null){b.removeEventListener("error",$rt_globals.evtHandler);HA7=null;}return;default:FV();}}Ds().s(b,c,d,e,f,$p);}
-function DJt(){var b,c,$$je,$p,$z;$p=0;if(FZ()){var $T=Ds();$p=$T.l();c=$T.l();b=$T.l();}_:while(true){switch($p){case 0:$p=1;case 1:CU8();if(B()){break _;}if(HG9){$p=3;continue _;}b=HIC;$p=2;case 2:$z=E3q(b);if(B()){break _;}c=$z;if(!c){HIE=1;return;}b=HID;$p=5;continue _;case 3:$z=F4s();if(B()){break _;}c=$z;$p=4;case 4:Da9(c);if(B()){break _;}a:{try{HIF=1;FK3();break a;}catch($$e){$$je=F($$e);b=$$je;}HIF=0;I(b);}HIF=0;HIE=1;return;case 5:$z=E3q(b);if(B()){break _;}c=$z;if(c&&!(FBU(!!0)?1:0)){$p=6;continue _;}HIE
+function waitForMobileLaunch() {
+    var thread = $rt_nativeThread();
+    var javaThread = $rt_getThread();
+    if (thread.isResuming()) {
+        thread.status = 0;
+        return;
+    }
+    thread.suspend(function(resume) {
+        HIH = { ei9: function() {
+            if (!HIF) return;
+            HIF = 0;
+            HIH = null;
+            if (HIG !== null) {
+                HIe.removeChild(HIG);
+                HIG = null;
+            }
+            $rt_setThread(javaThread);
+            resume();
+        } };
+    });
+}
+function DJt(){var b,c,$$je,$p,$z;$p=0;if(FZ()){var $T=Ds();$p=$T.l();c=$T.l();b=$T.l();}_:while(true){switch($p){case 0:$p=1;case 1:CU8();if(B()){break _;}if(HG9){$p=3;continue _;}b=HIC;$p=2;case 2:$z=E3q(b);if(B()){break _;}c=$z;if(!c){HIE=1;return;}b=HID;$p=5;continue _;case 3:$z=F4s();if(B()){break _;}c=$z;$p=4;case 4:Da9(c);if(B()){break _;}a:{try{HIF=1;FK3();break a;}catch($$e){$$je=F($$e);b=$$je;}HIF=0;I(b);}$p=11;continue _;case 11:waitForMobileLaunch();if(B()){break _;}HIE=1;return;case 5:$z=E3q(b);if(B()){break _;}c=$z;if(c&&!(FBU(!!0)?1:0)){$p=6;continue _;}HIE
 =1;return;case 6:$z=F4s();if(B()){break _;}c=$z;$p=7;case 7:Da9(c);if(B()){break _;}b=HIC;$p=8;case 8:$z=E3q(b);if(B()){break _;}c=$z;if(!c){HIE=1;return;}b=HID;$p=9;case 9:$z=E3q(b);if(B()){break _;}c=$z;if(!c){HIE=1;return;}c=100;$p=10;case 10:E_S(c);if(B()){break _;}b=HIC;$p=8;continue _;default:FV();}}Ds().s(b,c,$p);}
 function FK3(){var b,c,d;b=HIG;if(b!==null)HIe.removeChild(b);b=HId.document.createElement("div");HIG=b;b.classList.add("_eaglercraftX_mobile_press_any_key");HIG.setAttribute("style","position:absolute;background-color:white;font-family:sans-serif;top:10%;left:10%;right:10%;bottom:10%;border:5px double black;padding:calc(5px + 7vh) 15px;text-align:center;font-size:20px;user-select:none;z-index:10;");b=HIG;c="<h3 style=\"margin-block-start:0px;margin-block-end:0px;-webkit-margin-before:0px;-webkit-margin-after:0px;margin:20px 5px;\">Mobile Browser Detected</h3><p style=\"margin-block-start:0px;margin-block-end:0px;-webkit-margin-before:0px;-webkit-margin-after:0px;margin:20px 5px;\">You must manually select an option below to continue</p><p style=\"margin-block-start:0px;margin-block-end:0px;-webkit-margin-before:0px;-webkit-margin-after:0px;margin:20px 2px;\"><button style=\"font: 24px sans-serif;font-weight:bold;\" class=\"_eaglercraftX_mobile_launch_client\">Launch EaglercraftX</button></p><p style=\"margin-block-start:0px;margin-block-end:0px;-webkit-margin-before:0px;-webkit-margin-after:0px;margin:25px 5px;\">(Tablets and phones with large screens work best)</p>";b.innerHTML
 =c;d=HIG.querySelector("._eaglercraftX_mobile_launch_client");c=new BBQ;d.addEventListener("click",C_(c,"handleEvent"));b=HIe;c=HIG;b.appendChild(c);}

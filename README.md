@@ -1,4 +1,13 @@
 This site is a Progressive Web App (PWA) designed to launch and run Eaglercraft 1.12 directly in your browser. The launcher allows you to choose between two runtime versions: the JavaScript (JS) build or the WebAssembly Garbage-Collected (WASM-GC) build, giving users flexibility depending on their browser and device performance.
+
+Runtime regression checks
+Run `node --test tests/*.test.cjs` with Node.js 18 or newer. Runtime checks execute the bundled native WASM EPW decoder with mocked host imports (including a JSPI-capable host), verify integrity and component preservation, and exercise the bundled JavaScript mobile prompt with its real TeaVM thread suspension/resumption code and mocked DOM/display functions. These are not browser, phone or gameplay tests.
+
+The distribution has no buildable upstream source project. The JS mobile startup repair adds a suspension point in `DJt` (`waitForMobileLaunch`) so its existing launch button can remove the prompt and resume the startup thread. The WASM repair fixes the EPW checksum and restores the modified XZ containers to the bundled decoder's CRC32/32 MiB dictionary profile. Compressed LZMA2 bitstreams and uncompressed component bytes are preserved, including customized assets; no loader validation is bypassed. When intentionally changing the WASM payload, regenerate XZ checks, EPW offsets/lengths and the EPW CRC32 over bytes after the 16-byte header, and update the component-preservation hashes in the runtime test.
+
+Browser validation still needs desktop launches for both editions, a mobile launch-button tap (both direct bundle and launcher iframe), and touch-control recovery. Physical controllers and phones must be tested separately before release.
+The WASM-GC edition also requires browser JSPI support (`WebAssembly.Suspending`); Chrome 137 may require enabling JavaScript Promise Integration in its browser flags before restarting. Enabling a browser capability is not a checksum or decompression workaround.
+
 What the Launcher Does
 The PWA acts as a lightweight launcher for Eaglercraft 1.12. Instead of installing a traditional game client, the site loads the game directly in your browser and manages the runtime environment. With a single interface, you can:
 Launch Eaglercraft 1.12 instantly
