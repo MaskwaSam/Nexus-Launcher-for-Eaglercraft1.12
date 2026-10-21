@@ -16,7 +16,7 @@ The functional changes are separate: PR #2 changes `index.html` and controller c
 
 **Warning decision, approved October 20, 2026:** stop forcing the phishing and default-username warnings hidden. Startup no longer writes either preference. New profiles use the runtime's normal warning behavior; existing saved preferences, including prior dismissals, remain intact. No preference migration is performed. PR #1's bundled attribution text is preserved.
 
-This is a review candidate, not a production release or hardware acceptance result. No source PR is merged by creating this branch. Authentication, server routes, the service worker, and existing saves are outside the integration changes.
+This is a review candidate, not a production release or hardware acceptance result. No source PR is merged by creating this branch. Authentication, server routes, and existing saves are outside the integration changes.
 
 ## Automated regression checks
 
@@ -26,11 +26,12 @@ Run with Node.js 18 or newer; this candidate was exercised with Node.js **26.5.1
 node --test tests/*.test.cjs
 ```
 
-The combined suite contains **48 checks**:
+The combined suite contains **52 checks**:
 
 - **26 controller checks:** actual launcher scripts in a VM, with modeled gamepads, iframe reloads, and Window/Document/Canvas event propagation. They cover mappings and deadzones, shared Back/Start, disconnect and handover, sparse gamepad slots, exit/relaunch, focus/visibility cleanup, fresh refocus transitions, stable WindowProxy reloads, and canvas delivery. The first connected gamepad in the browser's list is used, including when earlier slots are empty.
 - **18 runtime checks:** the actual bundled native WASM container decoder with mocked host imports, valid decoding and corruption rejection, preserved component hashes, the real TeaVM mobile suspension/resumption lifecycle, and the actual WASM host's canvas handlers. The touch checks cover native-tap defaults, retained touch records, movement/cancellation, desktop mouse/wheel mappings, pointer lock, and exact restoration of the original host by reversing its two call removals. The decoder tests model a JSPI-capable host; they do not establish browser JSPI support.
 - **4 startup-option checks:** fresh profiles and saved warning preferences in both editions; startup performs no forced preference writes and retains the existing container and world-database options.
+- **4 service-worker checks:** precache files exist and include the manifest start URL, cache versions rotate, activation preserves unrelated caches, fetches use only the current launcher cache with network fallback, and a missing required asset rejects installation.
 
 These checks do not establish physical-controller, phone, gameplay, or multiplayer compatibility. The VM model omits browser capture/cancellation details, so loaded-runtime browser checks are also needed for input delivery.
 
@@ -46,9 +47,15 @@ Mobile checks exercise direct and launcher-iframe paths in Android emulation. Th
 
 Before release, exercise both editions with physical controllers and phones. Hold movement/Jump while disconnecting, leaving fullscreen, switching windows, and hiding the tab; then reconnect, relaunch, and refocus. Confirm no held key survives and new input works. With two controllers connected, disconnect each in turn and confirm handover. Check Back and Start individually and together, inventory, right-stick camera movement, keyboard/mouse play, touch menus, and in-world controls. Verify saved worlds and the classroom world-export workflow independently.
 
-## Existing PWA cache limitation
+## Service-worker precache and updates
 
-The unchanged `sw.js` precaches `./launcher.html`, but this distribution contains `index.html` instead. A fresh install therefore requests a missing file and cannot finish its precache. This is inherited from `main`, not introduced by combining these PRs. Offline installation/update behavior is not accepted for this candidate. Any later deployment must also verify that installed clients receive compatible launcher and runtime versions rather than stale cached files.
+The worker precaches the actual `./index.html`, `./manifest.json`, and both bundled game files in `nexus-launcher-v3`. This repairs the inherited missing-`launcher.html` install failure and avoids reusing v1 or main's separately published v2 entries. Activation removes only obsolete `nexus-launcher-v<digits>` caches; unrelated caches remain intact. Fetches read only the current launcher cache before the existing network fallback. Increment the cache version when changing precached launcher or game files.
+
+Updates retain the browser's normal waiting lifecycle. Existing controlled pages and game iframes keep their current worker until all its clients close; there is no forced takeover, automatic reload, or cache deletion during installation. A failed precache rejects the update and leaves the active worker usable.
+
+The optional `node tests/service-worker.integration.cjs` runner requires Playwright and Chromium, using the same module/browser environment variables as the menu runner. `NEXUS_SW_BROWSER_OUTPUT` selects its evidence directory. It checks root and subdirectory scopes, offline byte equality for all four core files, unrelated caches with conflicting responses, saved-data sentinels, modeled v1/v2 installations, failed-update recovery, and waiting/activation across open pages and an iframe.
+
+The canonical cached launch URL is the manifest's `index.html`. A directory URL such as `/` is a separate request and has no offline navigation fallback. External styles/fonts and other uncached assets still require network. These local checks do not establish installed-PWA, physical-device, full offline UI, or production-update acceptance; those remain release checks.
 
 ## Bundled runtime maintenance
 
