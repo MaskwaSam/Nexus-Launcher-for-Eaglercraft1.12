@@ -584,7 +584,7 @@
                     key, code, bubbles: true, cancelable: true
                 });
                 try {
-                    win.dispatchEvent(evt);
+                    // A document event bubbles to the game's window listeners once.
                     win.document.dispatchEvent(evt);
                 } catch (e) {}
             }
@@ -660,7 +660,9 @@
                             const moveEvt = new MouseEvent('mousemove', { bubbles: true, cancelable: true });
                             Object.defineProperty(moveEvt, 'movementX', { value: Math.round(dx) });
                             Object.defineProperty(moveEvt, 'movementY', { value: Math.round(dy) });
-                            win.document.dispatchEvent(moveEvt);
+                            // Both runtimes listen for pointer movement on their canvas.
+                            const target = win.document.querySelector('canvas') || win.document;
+                            target.dispatchEvent(moveEvt);
                         } catch (e) {}
                     }
 

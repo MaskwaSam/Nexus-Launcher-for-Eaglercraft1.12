@@ -1,43 +1,57 @@
-This site is a Progressive Web App (PWA) designed to launch and run Eaglercraft 1.12 directly in your browser. The launcher allows you to choose between two runtime versions: the JavaScript (JS) build or the WebAssembly Garbage-Collected (WASM-GC) build, giving users flexibility depending on their browser and device performance.
+# Patterson Classroom Launcher for Eaglercraft 1.12
 
-Runtime regression checks
-Run `node --test tests/*.test.cjs` with Node.js 18 or newer. Runtime checks execute the bundled native WASM EPW decoder with mocked host imports (including a JSPI-capable host), verify integrity and component preservation, and exercise the bundled JavaScript mobile prompt with its real TeaVM thread suspension/resumption code and mocked DOM/display functions. These are not browser, phone or gameplay tests.
+A browser launcher with local JavaScript and WebAssembly Garbage-Collected (WASM-GC) editions, fullscreen play, optional downloadable HTML bundles, controller mappings, and classroom world-export guidance. The About page retains the existing classroom instructions. World export, multiplayer, and gameplay have not been verified for this integration candidate.
 
-The distribution has no buildable upstream source project. The JS mobile startup repair adds a suspension point in `DJt` (`waitForMobileLaunch`) so its existing launch button can remove the prompt and resume the startup thread. The WASM repair fixes the EPW checksum and restores the modified XZ containers to the bundled decoder's CRC32/32 MiB dictionary profile. Compressed LZMA2 bitstreams and uncompressed component bytes are preserved, including customized assets; no loader validation is bypassed. When intentionally changing the WASM payload, regenerate XZ checks, EPW offsets/lengths and the EPW CRC32 over bytes after the 16-byte header, and update the component-preservation hashes in the runtime test.
+## Integration candidate
 
-Browser validation still needs desktop launches for both editions, a mobile launch-button tap (both direct bundle and launcher iframe), and touch-control recovery. Physical controllers and phones must be tested separately before release.
-The WASM-GC edition also requires browser JSPI support (`WebAssembly.Suspending`); Chrome 137 may require enabling JavaScript Promise Integration in its browser flags before restarting. Enabling a browser capability is not a checksum or decompression workaround.
+This isolated candidate combines three open draft PRs. PRs #2 and #3 are sibling changes based on PR #1, so both must be integrated to obtain both repairs.
 
-What the Launcher Does
-The PWA acts as a lightweight launcher for Eaglercraft 1.12. Instead of installing a traditional game client, the site loads the game directly in your browser and manages the runtime environment. With a single interface, you can:
-Launch Eaglercraft 1.12 instantly
-Switch between JS and WASM-GC engine builds
-Connect to multiplayer servers
-Run the game fullscreen like a native app
-What a PWA Is
-A Progressive Web App (PWA) is a website that behaves like a native application. When installed, it can run independently from the browser in its own window and provides features similar to desktop or mobile apps.
-Key characteristics include:
-Installable – Add it to your desktop or home screen without downloading a traditional program
-Offline caching – Game assets and launcher files can be stored locally for faster startup
-App-like interface – Runs without browser UI for a more immersive experience
-Automatic updates – The launcher updates itself when new versions are available
-How the PWA Optimizes Gameplay
-Using PWA technology improves the Eaglercraft experience in several ways:
-1. Faster Loading
-Service workers cache essential game files locally, reducing loading times after the first launch.
-2. Reduced Network Overhead
-Assets such as textures, scripts, and UI components can be stored offline, meaning the launcher doesn't need to download everything each time.
-3. Native-like Performance
-Running as a standalone app eliminates browser UI overhead and allows the game to operate closer to a desktop application environment.
-4. Engine Choice for Performance
-JS Version: Maximum compatibility with older browsers and devices.
-WASM-GC Version: Uses WebAssembly with garbage collection for improved performance and more efficient memory management on modern browsers.
-5. Seamless Updates
-The PWA automatically updates cached files when new builds of Eaglercraft or the launcher become available, keeping gameplay smooth without manual downloads.
-Summary
-The Eaglercraft 1.12 PWA Launcher provides a fast, installable, browser-based game client that combines the convenience of a website with the performance of a native application. By leveraging modern web technologies like service workers, caching, and WebAssembly, it delivers a smoother and more reliable way to play Eaglercraft directly from your browser.
+| Source | Pinned head | Target |
+| --- | --- | --- |
+| [PR #1: classroom baseline](https://github.com/MaskwaSam/Nexus-Launcher-for-Eaglercraft1.12/pull/1) | `c98ff7962068ceaa17b86c824a4ae585e8a756c7` | `main` at `958d9128d653db1b08e78be4c2ec6d07c6b798a0` |
+| [PR #2: controller focus recovery](https://github.com/MaskwaSam/Nexus-Launcher-for-Eaglercraft1.12/pull/2) | `52afc7b23d87b4bc2a738904328c1c596e4eef80` | PR #1 |
+| [PR #3: bundled runtime repair](https://github.com/MaskwaSam/Nexus-Launcher-for-Eaglercraft1.12/pull/3) | `aa204954f2b829a1c53f3802d92ee19378663e12` | PR #1 |
 
-Controller regression checks
-Run `node --test tests/controller.test.cjs` with Node.js 18 or newer. These checks execute the launcher's inline scripts with mocked gamepad and iframe events, without loading either game bundle. They cover shared Back/Start input, key cleanup on disconnect, game exit, window/iframe focus loss and page hiding, reconnect/relaunch/refocus, nonzero gamepad slots, handover when another controller remains connected, and the existing input mappings. The launcher uses the first connected controller in the browser's gamepad list, including when earlier slots are empty. Controller input is suspended while the page is hidden or unfocused and resumes with fresh key transitions when focus returns.
+The functional changes are separate: PR #2 changes `index.html` and controller checks; PR #3 changes the two game bundles and runtime checks. This README reconciles their overlapping documentation. Integration also routes right-stick movement to the runtime canvas and sends each keyboard transition once through document bubbling to the game's window listeners.
 
-Before releasing, also test a physical controller in both game editions: hold movement or Jump while disconnecting, leaving fullscreen, switching windows and hiding the tab, then reconnect, relaunch or refocus; verify no key stays held and new input works. With two controllers connected, disconnect each in turn and verify the remaining controller works. Check Back and Start individually and together, plus the launcher on a mobile browser. The Node checks do not verify hardware or mobile browser behavior.
+**Warning decision, approved October 20, 2026:** stop forcing the phishing and default-username warnings hidden. Startup no longer writes either preference. New profiles use the runtime's normal warning behavior; existing saved preferences, including prior dismissals, remain intact. No preference migration is performed. PR #1's bundled attribution text is preserved.
+
+This is a review candidate, not a production release or hardware acceptance result. No source PR is merged by creating this branch. Authentication, server routes, the service worker, and existing saves are outside the integration changes.
+
+## Automated regression checks
+
+Run with Node.js 18 or newer; this candidate was exercised with Node.js **26.5.1**:
+
+```sh
+node --test tests/*.test.cjs
+```
+
+The combined suite contains **43 checks**:
+
+- **26 controller checks:** actual launcher scripts in a VM, with modeled gamepads, iframe reloads, and Window/Document/Canvas event propagation. They cover mappings and deadzones, shared Back/Start, disconnect and handover, sparse gamepad slots, exit/relaunch, focus/visibility cleanup, fresh refocus transitions, stable WindowProxy reloads, and canvas delivery. The first connected gamepad in the browser's list is used, including when earlier slots are empty.
+- **13 runtime checks:** the actual bundled native WASM container decoder with mocked host imports, valid decoding and corruption rejection, preserved component hashes, and the real TeaVM mobile suspension/resumption lifecycle with mocked DOM/display functions. The decoder tests model a JSPI-capable host; they do not establish browser JSPI support.
+- **4 startup-option checks:** fresh profiles and saved warning preferences in both editions; startup performs no forced preference writes and retains the existing container and world-database options.
+
+These checks do not establish physical-controller, phone, gameplay, or multiplayer compatibility. The VM model omits browser capture/cancellation details, so loaded-runtime browser checks are also needed for input delivery.
+
+The optional `node tests/browser.integration.cjs` runner requires Playwright and a Chromium browser. Set `NEXUS_BROWSER_EXECUTABLE` to use an installed browser; `NEXUS_PLAYWRIGHT_MODULE` can select an existing Playwright module. It serves this checkout on a temporary loopback port, uses fresh browser profiles, and prints the directory containing its screenshots and JSON results. `NEXUS_BROWSER_OUTPUT` can select that directory. It records unavailable native tab-focus transitions separately; mobile canvas startup checks still require visual review of the touch-menu screenshots.
+
+## Browser and device acceptance
+
+Desktop and Android-emulated startup/menu evidence is recorded separately from the Node checks in the integration validation record. Browser automation uses simulated gamepads; trusted emulated touch is not a physical-phone test. The WASM edition requires browser support for JavaScript Promise Integration, including `WebAssembly.Suspending`; the runtime's capability, checksum, and decompression checks remain enabled.
+
+The known WASM touch-menu failure from PR #3 remains a release acceptance concern. Reaching Edit Profile after the mobile launch prompt does not establish working touch menus or gameplay. Do not treat mouse success in a mobile context as touch success.
+
+Before release, exercise both editions with physical controllers and phones. Hold movement/Jump while disconnecting, leaving fullscreen, switching windows, and hiding the tab; then reconnect, relaunch, and refocus. Confirm no held key survives and new input works. With two controllers connected, disconnect each in turn and confirm handover. Check Back and Start individually and together, inventory, right-stick camera movement, keyboard/mouse play, touch menus, and in-world controls. Verify saved worlds and the classroom world-export workflow independently.
+
+## Existing PWA cache limitation
+
+The unchanged `sw.js` precaches `./launcher.html`, but this distribution contains `index.html` instead. A fresh install therefore requests a missing file and cannot finish its precache. This is inherited from `main`, not introduced by combining these PRs. Offline installation/update behavior is not accepted for this candidate. Any later deployment must also verify that installed clients receive compatible launcher and runtime versions rather than stale cached files.
+
+## Bundled runtime maintenance
+
+This distribution has no buildable upstream source project. The JS repair adds a `waitForMobileLaunch` suspension point in `DJt`, allowing the existing button callback to remove the prompt and resume the startup thread. Desktop startup remains on its original path.
+
+The WASM repair fixes the outer EPW checksum and restores two modified XZ containers to the bundled decoder's CRC32/32 MiB dictionary profile. Compressed LZMA2 bitstreams and decoded component bytes are preserved, including customized assets. The final EPW is **15,067,956 bytes**, with CRC32 **`0x8ed16493`** over bytes after its 16-byte header. No validation is bypassed. The integration's warning-script removal changes neither embedded payload.
+
+When intentionally changing payload contents, regenerate the affected XZ checks, EPW offsets/lengths, and outer CRC32. Independently compare decoded content before updating preservation hashes. Keep the native corruption-rejection check and browser startup checks in place.
