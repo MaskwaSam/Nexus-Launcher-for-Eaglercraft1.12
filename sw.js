@@ -1,6 +1,6 @@
-const CACHE_NAME = 'nexus-launcher-v1';
+const CACHE_NAME = 'nexus-launcher-v2';
 const ASSETS_TO_CACHE = [
-    './launcher.html',
+    './index.html',
     './manifest.json',
     './gamefile.html',
     './gamefilebetter.html'
@@ -22,7 +22,7 @@ self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((keys) => {
             return Promise.all(
-                keys.filter(key => key !== CACHE_NAME)
+                keys.filter(key => key.startsWith('nexus-launcher-') && key !== CACHE_NAME)
                     .map(key => caches.delete(key))
             );
         })
