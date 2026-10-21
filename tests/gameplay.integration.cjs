@@ -154,7 +154,7 @@ async function title(timeout = 120000) {
     return waitOCR('title', /singleplayer/, timeout, async screen => {
         if (/editprofile/.test(normalized(screen.text))) {
             await clearType(750, 252, 'NexusQAUser', 16); await page.mouse.click(640, 683);
-        } else if (/defaultuserna[mn]e/.test(normalized(screen.text))) await clickWord(/^continue$/i, 'default-name-continue', screen);
+        } else if (/defaultuserna[mn]e/.test(normalized(screen.text))) assert.fail('Explicit NexusQAUser entry must not fall back to the generated-username warning');
         else if (/important|inportant/.test(normalized(screen.text))) await clickWord(/^(understand|continue)$/i, 'warning-understand', screen);
     });
 }

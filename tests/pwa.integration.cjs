@@ -161,6 +161,41 @@ async function launcher(page, label) {
     await page.locator('#about-page').waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '← Back', exact: true }).click();
     await page.locator('#about-page').waitFor({ state: 'hidden' });
+    if (label === 'root') {
+        const guide = page.locator('.username-help');
+        await guide.scrollIntoViewIfNeeded();
+        const auditGuide = async width => {
+            const layout = await page.evaluate(() => {
+                const guide = document.querySelector('.username-help');
+                const rect = guide.getBoundingClientRect();
+                return {
+                    text: guide.textContent.trim(),
+                    viewportWidth: innerWidth,
+                    left: rect.left,
+                    right: rect.right,
+                    width: rect.width,
+                    contentWidth: guide.clientWidth,
+                    scrollWidth: guide.scrollWidth,
+                    pageWidth: document.documentElement.scrollWidth
+                };
+            });
+            assert.equal(layout.viewportWidth, width);
+            assert.equal(layout.text, 'Choose your name in Edit Profile: 3–16 letters, numbers, or _.');
+            assert.ok(layout.width > 0 && layout.left >= 0 && layout.right <= width,
+                'Username guide must fit within the ' + width + 'px viewport');
+            assert.ok(layout.scrollWidth <= layout.contentWidth, 'Username guide text must not overflow its box');
+            assert.ok(layout.pageWidth <= width, 'Launcher must not overflow horizontally at ' + width + 'px');
+            assert.equal(await page.evaluate(() => matchMedia('(display-mode: standalone)').matches), true);
+            await page.screenshot({ path: path.join(output, 'root-username-help-' + width + 'px.png'), fullPage: true });
+            return layout;
+        };
+        const desktopGuide = await auditGuide(1280);
+        await page.setViewportSize({ width: 412, height: 844 });
+        const narrowGuide = await auditGuide(412);
+        pass('root: username guide fits desktop and 412px viewport in installed standalone mode (viewport resize, not device acceptance)',
+            { desktop: desktopGuide, narrow: narrowGuide });
+        await page.setViewportSize({ width: 1280, height: 900 });
+    }
     await page.screenshot({ path: path.join(output, label + '-launcher.png') });
     pass(label + ': installed standalone layout, local assets/fonts and About/back', assets);
 }
@@ -287,11 +322,34 @@ async function game(page, edition, label) {
         await page.mouse.click(word.x, word.y);
         await page.waitForTimeout(500);
     }
+    const usernameLabel = rendered.words.find(word => /^username:?$/i.test(word.text.trim()));
+    assert.ok(usernameLabel, label + ' Edit Profile screen must show a Username field');
+    const explicitUsername = 'OfflineLearner';
+    // Click the canvas text field with a trusted mouse event, then enter an
+    // explicit name through trusted keyboard input before activating Done.
+    await page.mouse.click(usernameLabel.x + 300, usernameLabel.y + 70);
+    await page.waitForTimeout(100);
+    await page.keyboard.press('End');
+    await page.waitForTimeout(50);
+    for (let i = 0; i < 16; i++) await page.keyboard.press('Backspace');
+    await page.waitForTimeout(100);
+    await page.keyboard.type(explicitUsername, { delay: 20 });
+    await page.waitForTimeout(200);
+    const namedProfile = await ocr(page, label + '-explicit-username');
+    const usernameRow = namedProfile.words
+        .filter(word => word.y >= usernameLabel.y + 45 && word.y <= usernameLabel.y + 105 &&
+            word.x >= usernameLabel.x - 200 && word.x <= usernameLabel.x + 350)
+        .sort((left, right) => left.x - right.x)
+        .map(word => word.text).join('');
+    assert.equal(usernameRow.replace(/[^a-z]/gi, '').toLowerCase(), explicitUsername.toLowerCase(),
+        label + ' username field must show exactly ' + explicitUsername + ' before Done: ' + namedProfile.text);
     await clickWord(/^done$/i, 'done');
     for (let i = 0; i < 3; i++) {
         const screen = await ocr(page, label + '-after-done-' + i);
-        if (/defaultuserna[mn]e/i.test(screen.text.replace(/\s/g, ''))) await clickWord(/^continue$/i, 'continue');
-        else if (/important|inportant/i.test(screen.text)) await clickWord(/^(understand|continue|done)$/i, 'acknowledge');
+        const normalized = screen.text.replace(/[^a-z]/gi, '').toLowerCase();
+        assert.doesNotMatch(normalized, /defaultuserna[mn]e|generateduserna[mn]e|usernamegenerated/,
+            label + ' fresh profile must not show the generated-username warning: ' + screen.text);
+        if (/important|inportant/i.test(screen.text)) await clickWord(/^(understand|continue|done)$/i, 'acknowledge');
         else break;
     }
     await ocr(page, label + '-title', /singleplayer/);

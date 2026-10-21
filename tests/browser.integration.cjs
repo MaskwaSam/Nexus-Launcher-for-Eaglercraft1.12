@@ -188,11 +188,17 @@ async function mobile(browser, url, edition, direct = false) {
             assert.ok(events.every(event => event.trusted && event.target === 'CANVAS'), 'compatibility mouse events must come from the browser');
         }
         async function titleAfterProfile(label) {
+            // Choose an explicit native profile name; never accept a generated
+            // username warning as evidence that typing succeeded.
+            await tap(337, 178);
+            await page.waitForTimeout(100);
+            await page.keyboard.press('End'); await page.waitForTimeout(50);
+            for (let i = 0; i < 32; i++) await page.keyboard.press('Backspace');
+            await page.keyboard.type('NexusQAUser', { delay: 20 }); await page.waitForTimeout(200);
             await tap(206, 342); // Profile Done.
             let heading = await screen(label + '-after-done');
             if (/defaultuserna[mn]edetected/.test(heading)) {
-                await tap(206, 313); // Continue Anyway when the runtime shows its username warning.
-                heading = await screen(label + '-after-continue');
+                assert.fail('Explicit profile entry must not fall back to the generated-username warning');
             }
             if (/(important|inportant)/.test(heading)) await tap(206, 465); // Existing first-load acknowledgement.
             await screen(label + '-title', /resourcescopyright/, true);

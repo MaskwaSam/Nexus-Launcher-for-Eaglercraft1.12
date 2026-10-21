@@ -212,13 +212,13 @@ test('the actual bundled WASM loader validates and decompresses the entire EPW',
     assert.equal(result.loaded, true);
 });
 
-test('the native loader preserves components and the reviewed bootstrap and debug repairs', async () => {
+test('the native loader preserves components and the reviewed bootstrap, username and debug repairs', async () => {
     const result = await nativeDecode;
     const hashes = result.decoded.map((bytes) => crypto.createHash('sha256').update(bytes).digest('hex'));
     for (const hash of [
         '1413de7cea72222962784280a248c638b056426a23d2d20a85dbd53789e2f78c',
-        '0a69472bdb4b2353a7069327d48a2a89751a033d2dad2b8b575dee5048c66b53',
-        '4fcb9bc840ae4bbaebed8658e8a505d73a7f5b82d1b820b7da960ebde5957678',
+        'd4be932edfc22edd08487c0010c3a16f54226c57dfc9f47f04dbb04edf72b555',
+        '79567678bebf97bfd154b3b0cdbb6b8221245050d40b440e3f5d909600126a06',
         'e341684f4c42e0a115498040ef357d1ede36c446f72a6d85c6bedc93e4d03490',
         '02e8a6157a8d944f79641c871fd6912cefd8f7cae87e0761c5a5c09a53e57e0a',
         '2f67c8f737c0fb6d00c208169c396fac9fa608fff189a7d5621ccef524ab4c7e'

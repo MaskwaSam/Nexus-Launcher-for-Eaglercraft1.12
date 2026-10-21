@@ -26,6 +26,8 @@ REPAIRED_PAYLOAD_SHA256 = "93d386bb781b8428625b49248aa07fb1e61b66fd053d972e38cec
 # The later import-bootstrap repair preserves this complete host component.
 # Accept only its frozen output as well; historical --apply output stays exact.
 IMPORT_REPAIRED_PAYLOAD_SHA256 = "856faef3c5a11fbcf05cfb87fcaf5c92f0776b7200925dd062277621f543d11d"
+# The explicit-name repair also preserves the complete repaired host bytes.
+USERNAME_REPAIRED_PAYLOAD_SHA256 = "1a675662fe90ef02c7559d3b4d6506179afb3e4aacdcf0ebb16faa84bdfc8f30"
 PAYLOAD_PATTERN = rb"data:application/octet-stream;base64,(RUFHJFdBU0[A-Za-z0-9+/=]*)"
 DOWNSTREAM_OFFSETS = (228, 244, 260, 292, 324)
 PATCHES = tuple(
@@ -72,7 +74,7 @@ def main():
             restored = restored.replace(after, before, 1)
         if sha256(restored) != BASE_HOST_SHA256:
             raise ValueError("Patched host contains changes beyond the two reviewed call removals")
-        if sha256(payload) not in (REPAIRED_PAYLOAD_SHA256, IMPORT_REPAIRED_PAYLOAD_SHA256):
+        if sha256(payload) not in (REPAIRED_PAYLOAD_SHA256, IMPORT_REPAIRED_PAYLOAD_SHA256, USERNAME_REPAIRED_PAYLOAD_SHA256):
             raise ValueError("Repaired payload differs from the complete reviewed output")
         print(json.dumps({"status": "already_repaired", "host_sha256": sha256(host), "payload_sha256": sha256(payload), "epw_bytes": len(payload), "crc32": hex(read32(payload, 12))}))
         return 0

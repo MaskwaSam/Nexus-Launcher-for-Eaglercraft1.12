@@ -26,6 +26,9 @@ BASE_DEBUG_SHA256 = 'd9e3de56cf7061df22ac5676766c0ffb2d7cef82a102f5fb79085639c21
 spec = importlib.util.spec_from_file_location('repair', ROOT / 'scripts/repair-native-import.py')
 repair = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(repair)
+username_spec = importlib.util.spec_from_file_location('username_repair', ROOT / 'scripts/repair-explicit-usernames.py')
+usernames = importlib.util.module_from_spec(username_spec)
+username_spec.loader.exec_module(usernames)
 
 
 def optional_original(path):
@@ -43,6 +46,10 @@ class NativeImportRepair(unittest.TestCase):
         self.assertEqual(len(matches), 1)
         new_match = matches[0]
         payload = base64.b64decode(new_match[1], validate=True)
+        # First remove only the independently frozen later profile edits. The
+        # original bootstrap proof below must still recover the same baseline.
+        self.assertEqual(repair.sha(payload), usernames.OUTPUT_EPW)
+        payload = usernames.undo_epw(payload)
         self.assertEqual(repair.sha(payload), repair.OUTPUT_EPW)
         self.assertEqual(repair.read32(payload, 8), len(payload))
         self.assertEqual(repair.read32(payload, 12), repair.zlib.crc32(payload[16:]) & 0xffffffff)
@@ -101,7 +108,7 @@ class NativeImportRepair(unittest.TestCase):
         print(json.dumps(evidence, sort_keys=True))
 
     def test_js_bootstrap_suspends_before_allocation_and_resumes(self):
-        new = (ROOT / 'gamefile.html').read_bytes()
+        new = usernames.undo_js((ROOT / 'gamefile.html').read_bytes())
         start = new.index(b'function G8g()')
         end = new.index(b'\nfunction ', start+1)
         fixed = new[start:end]

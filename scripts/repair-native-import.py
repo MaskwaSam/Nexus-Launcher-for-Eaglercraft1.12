@@ -30,6 +30,9 @@ NEW_JS = b'switch($p){case 0:$p=108;case 108:Fgk();if(B()){break _;}b=new BkS;'
 # These identify the entire reviewed input/output, including the earlier touch fix.
 BASE_EPW = '93d386bb781b8428625b49248aa07fb1e61b66fd053d972e38cecf324e78c886'
 OUTPUT_EPW = '856faef3c5a11fbcf05cfb87fcaf5c92f0776b7200925dd062277621f543d11d'
+# A later bounded profile repair preserves the complete bootstrap fix. Its
+# independent inverse/forward proof recovers OUTPUT_EPW exactly.
+USERNAME_OUTPUT_EPW = '1a675662fe90ef02c7559d3b4d6506179afb3e4aacdcf0ebb16faa84bdfc8f30'
 BASE_JS_FUNC = 'bad2d111aa8922dda94666ae40c2ae394cf648f195f79a1d05dcd435c5d1c1ce'
 
 
@@ -384,8 +387,8 @@ def main():
     assert len(matches) == 1
     match = matches[0]
     payload = base64.b64decode(match[1], validate=True)
-    if sha(payload) == OUTPUT_EPW:
-        print(json.dumps({'status': 'already_repaired', 'payload_sha256': OUTPUT_EPW, 'js_repaired': f != baseline}))
+    if sha(payload) in (OUTPUT_EPW, USERNAME_OUTPUT_EPW):
+        print(json.dumps({'status': 'already_repaired', 'payload_sha256': sha(payload), 'js_repaired': f != baseline}))
         assert f != baseline
         return
     output, evidence = patch_epw(payload)
