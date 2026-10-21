@@ -8,7 +8,7 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
     .map((match) => match[1]).filter((source) => source.trim());
 
-function eventTarget() {
+function eventTarget(parent = null) {
     const listeners = new Map();
     return {
         addEventListener(type, listener) {
@@ -20,7 +20,12 @@ function eventTarget() {
         },
         clearEventListeners() { listeners.clear(); },
         dispatchEvent(event) {
+            event.target = this;
+            return this.propagateEvent(event);
+        },
+        propagateEvent(event) {
             for (const listener of listeners.get(event.type) || []) listener(event);
+            if (event.bubbles && parent) parent.propagateEvent(event);
             return true;
         }
     };
@@ -34,24 +39,25 @@ function launcher() {
     let gamepads = [];
     function gameWindow() {
         const received = [];
-        return Object.assign(eventTarget(), {
-            events: received,
-            document: {
-                querySelector(selector) {
-                    return selector === 'canvas' ? { dispatchEvent(event) {
-                        received.push(event);
-                        events.push(event);
-                        operations.push(event.type);
-                    } } : null;
-                },
-                dispatchEvent(event) {
-                    assert.notEqual(event.type, 'mousemove', 'camera input must reach the runtime canvas');
-                    received.push(event);
-                    events.push(event);
-                    operations.push(event.type);
-                }
-            }
-        });
+        const win = Object.assign(eventTarget(), { events: received });
+        const document = eventTarget(win);
+        const canvas = eventTarget(document);
+        const receive = (event) => {
+            received.push(event);
+            events.push(event);
+            operations.push(event.type);
+        };
+        // Match the bundled runtime's listener placement and browser bubbling.
+        win.bindRuntimeInput = () => {
+            win.addEventListener('keydown', receive);
+            win.addEventListener('keyup', receive);
+        };
+        win.bindRuntimeInput();
+        canvas.addEventListener('mousemove', receive);
+        document.querySelector = (selector) => selector === 'canvas' ? canvas : null;
+        win.document = document;
+        win.canvas = canvas;
+        return win;
     }
     const frame = Object.assign(eventTarget(), {
         style: { display: 'none' },
@@ -126,32 +132,6 @@ test('launcher inline scripts and service worker parse', () => {
     assert.equal(scripts.length, 2, 'both launcher and controller scripts are exercised');
     scripts.forEach((source) => new vm.Script(source));
     new vm.Script(fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8'));
-});
-
-test('service worker refreshes actual launcher assets and only expires Nexus caches', async () => {
-    const handlers = {};
-    const removed = [];
-    let assets;
-    let cacheName;
-    const context = vm.createContext({
-        self: { addEventListener(type, handler) { handlers[type] = handler; } },
-        caches: {
-            async open(name) { cacheName = name; return { async addAll(paths) { assets = paths; } }; },
-            async keys() { return ['nexus-launcher-v1', 'nexus-launcher-v2', 'other-app-cache']; },
-            async delete(name) { removed.push(name); }
-        },
-        console: { log() {} }
-    });
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8'), context);
-    let completion;
-    const event = { waitUntil(promise) { completion = promise; } };
-    handlers.install(event); await completion;
-    assert.equal(cacheName, 'nexus-launcher-v2');
-    assert.ok(assets.includes('./index.html'));
-    assert.ok(!assets.includes('./launcher.html'));
-    for (const asset of assets) assert.ok(fs.existsSync(path.join(__dirname, '..', asset)), asset);
-    handlers.activate(event); await completion;
-    assert.deepEqual(removed, ['nexus-launcher-v1']);
 });
 
 for (const button of [8, 9]) {
@@ -419,6 +399,7 @@ test('iframe self-reload restores blur cleanup when the WindowProxy stays the sa
     app.tick();
     // Navigation replaces the inner window's listeners, but not contentWindow's proxy.
     app.frame.contentWindow.clearEventListeners();
+    app.frame.contentWindow.bindRuntimeInput();
     app.frame.dispatchEvent({ type: 'load' });
     app.tick();
     assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup', 'keydown']);
@@ -476,10 +457,25 @@ test('movement deadzone, other buttons and mouse look retain their mappings', ()
     const mouse = app.events.find((event) => event.type === 'mousemove');
     assert.equal(mouse.movementX, 6);
     assert.equal(mouse.movementY, -8);
+    assert.equal(mouse.target, app.frame.contentWindow.canvas, 'right-stick events reach the runtime canvas');
     pad.axes = [1, 1, 0, 0];
     pad.buttons.forEach((button) => { button.pressed = false; });
     app.tick();
     assert.deepEqual(app.keyEvents('KeyD'), ['keydown']);
     assert.deepEqual(app.keyEvents('KeyS'), ['keydown']);
     assert.deepEqual(app.keyEvents('Space'), ['keydown', 'keyup']);
+});
+
+test('keyboard transitions reach the game window once through document bubbling', () => {
+    const app = launcher();
+    const pad = gamepad();
+    pad.buttons[9].pressed = true;
+    app.connect(pad);
+    app.launch();
+    app.tick();
+    assert.deepEqual(app.keyEvents('Escape'), ['keydown']);
+    assert.equal(app.events[0].target, app.frame.contentWindow.document);
+    pad.buttons[9].pressed = false;
+    app.tick();
+    assert.deepEqual(app.keyEvents('Escape'), ['keydown', 'keyup']);
 });

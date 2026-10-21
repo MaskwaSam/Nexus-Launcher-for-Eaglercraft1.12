@@ -1,0 +1,34 @@
+#world-backups-dialog {
+    width: min(36rem, calc(100% - 2rem));
+    max-height: calc(100% - 2rem);
+    overflow-y: auto;
+    margin: auto;
+    padding: 1.5rem;
+    color: #eee;
+    background: #242424;
+    border: 2px solid #555;
+    border-radius: 8px;
+}
+#world-backups-dialog::backdrop { background: rgb(0 0 0 / 80%); }
+#world-backups-dialog h2 {
+    margin-bottom: 1rem;
+    font-size: 1.25rem;
+    font-weight: 800;
+}
+#world-backups-dialog p { margin: 0 0 1rem; line-height: 1.6; }
+#world-backups-status { min-height: 1.6rem; color: #b8e5a4; }
+#world-backups-dialog label { display: block; margin-bottom: 0.5rem; }
+#world-backups-world {
+    display: block;
+    width: 100%;
+    padding: 0.65rem;
+    color: #eee;
+    background: #121212;
+    border: 1px solid #777;
+    border-radius: 4px;
+}
+.world-backups-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.25rem 0; }
+.world-backups-actions .mc-btn { min-width: 0; padding: 0.75rem 1rem; }
+#world-backups-dialog button:disabled { opacity: 0.55; cursor: default; }
+#world-backups-dialog .world-backups-help { margin-bottom: 0; color: #bbb; font-size: 0.875rem; }
+#world-backups-dialog :focus-visible { outline: 3px solid #68b0ff; outline-offset: 3px; }

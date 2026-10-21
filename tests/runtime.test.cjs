@@ -63,6 +63,49 @@ async function decodeEPW(data) {
 }
 
 const nativeDecode = decodeEPW(payload);
+const wasmHost = nativeDecode.then((result) => {
+    assert.equal(result.failure, null, result.logs.join('\n'));
+    const source = result.decoded.map((bytes) => Buffer.from(bytes).toString('utf8'))
+        .find((source) => source.includes('async function Vb(){'));
+    assert.ok(source, 'The native decoder must return the actual browser host component');
+    return source;
+});
+
+async function wasmCanvasInput() {
+    const source = await wasmHost;
+    const inputStart = source.indexOf('async function Vb(){');
+    const mapperStart = source.indexOf('function b(m){const A=m.length', inputStart);
+    const mapperEnd = source.indexOf('function d(m,A){', mapperStart);
+    const handlersStart = source.indexOf('R.addEventListener("mousedown",ua=', mapperEnd);
+    const handlersEnd = source.indexOf('window.addEventListener("blur",Cb=', handlersStart);
+    assert.ok(inputStart >= 0 && mapperStart > inputStart && mapperEnd > mapperStart && handlersStart > mapperEnd && handlersEnd > handlersStart);
+    const listeners = new Map();
+    const records = [];
+    const locks = [];
+    let keyboardCloses = 0;
+    const context = vm.createContext({
+        R: { addEventListener: (type, handler) => { listeners.set(type, handler); } },
+        document: { pointerLockElement: null }, Ba: false, wa: false, W: 10, da: 20,
+        U: (group, type, eventObj) => { records.push({ group, type, eventObj }); },
+        z: () => { keyboardCloses++; }, t: (value) => { locks.push(value); }
+    });
+    vm.runInContext(source.slice(mapperStart, mapperEnd) + source.slice(handlersStart, handlersEnd), context);
+    const touchList = (points) => ({ length: points.length, item: (index) => points[index] });
+    return {
+        context, locks,
+        get records() { return JSON.parse(JSON.stringify(records)); },
+        get keyboardCloses() { return keyboardCloses; },
+        send(type, extra = {}) {
+            const event = { prevented: 0, stopped: 0,
+                preventDefault() { this.prevented++; }, stopPropagation() { this.stopped++; }, ...extra };
+            listeners.get(type)(event);
+            return event;
+        },
+        touch(type, changed, target = []) {
+            return this.send(type, { changedTouches: touchList(changed), targetTouches: touchList(target) });
+        }
+    };
+}
 
 for (const [edition, source] of [['JS', runtime], ['WASM', wasm]]) {
     test(`${edition} launch options preserve upstream warning defaults and stored settings`, () => {
@@ -169,13 +212,13 @@ test('the actual bundled WASM loader validates and decompresses the entire EPW',
     assert.equal(result.loaded, true);
 });
 
-test('the native loader preserves the customized uncompressed components', async () => {
+test('the native loader preserves components and the reviewed bootstrap, username and debug repairs', async () => {
     const result = await nativeDecode;
     const hashes = result.decoded.map((bytes) => crypto.createHash('sha256').update(bytes).digest('hex'));
     for (const hash of [
-        'af9165310c1abb4ab3a9b77f954f52703cb3b5ae9c4b763a0457f4358b6d8b7a',
-        '38cbb6c21bb15d5f7d2911a588b61e1fa224d442fd4663465afa0351f5deed4d',
-        'd9e3de56cf7061df22ac5676766c0ffb2d7cef82a102f5fb79085639c216eb57',
+        '1413de7cea72222962784280a248c638b056426a23d2d20a85dbd53789e2f78c',
+        'd4be932edfc22edd08487c0010c3a16f54226c57dfc9f47f04dbb04edf72b555',
+        '79567678bebf97bfd154b3b0cdbb6b8221245050d40b440e3f5d909600126a06',
         'e341684f4c42e0a115498040ef357d1ede36c446f72a6d85c6bedc93e4d03490',
         '02e8a6157a8d944f79641c871fd6912cefd8f7cae87e0761c5a5c09a53e57e0a',
         '2f67c8f737c0fb6d00c208169c396fac9fa608fff189a7d5621ccef524ab4c7e'
@@ -184,6 +227,73 @@ test('the native loader preserves the customized uncompressed components', async
     const size = payload.readUInt32LE(200);
     assert.equal(crypto.createHash('sha256').update(payload.subarray(start, start + size)).digest('hex'),
         '9b4fc6f96b5f0d4825c40460302c1ecdd426a384e66129a182e417f271eaeff0');
+});
+
+test('WASM native-tap repair removes only two canvas cancellation calls', async () => {
+    let source = await wasmHost;
+    for (const prefix of ['R.addEventListener("touchstart",pb=function(m){', 'R.addEventListener("touchend",qb=function(m){']) {
+        const repaired = prefix + 'm.stopPropagation();';
+        assert.equal(source.split(repaired).length - 1, 1);
+        source = source.replace(repaired, prefix + 'm.preventDefault();m.stopPropagation();');
+    }
+    assert.equal(crypto.createHash('sha256').update(source).digest('hex'),
+        'af9165310c1abb4ab3a9b77f954f52703cb3b5ae9c4b763a0457f4358b6d8b7a',
+        'Restoring the two calls must recover the complete original host bytes');
+});
+
+test('WASM canvas taps allow native mouse compatibility while retaining touch records', async () => {
+    const input = await wasmCanvasInput();
+    const point = { identifier: 0, pageX: 40.5, pageY: 90, radiusX: 6, radiusY: 10, force: 0.5 };
+    const start = input.touch('touchstart', [point], [point]);
+    const end = input.touch('touchend', [point]);
+    assert.equal(start.prevented, 0, 'touchstart must permit browser-native mouse events');
+    assert.equal(end.prevented, 0, 'touchend must permit browser-native mouse events');
+    assert.equal(start.stopped, 1);
+    assert.equal(end.stopped, 1);
+    assert.equal(input.keyboardCloses, 1);
+    const converted = { pointX: 30.5, pointY: 70, radius: 8, force: 0.5, pointUID: 0 };
+    assert.deepEqual(input.records, [
+        { group: 0, type: 2, eventObj: { eventType: 0, changedTouches: [converted], targetTouches: [converted] } },
+        { group: 0, type: 2, eventObj: { eventType: 2, changedTouches: [converted], targetTouches: [] } }
+    ], 'Handlers retain native touch records without fabricating mouse queue entries');
+});
+
+test('WASM touch movement and cancellation retain their existing behavior', async () => {
+    const input = await wasmCanvasInput();
+    const point = { identifier: 7, pageX: 18, pageY: 29, radiusX: 2, radiusY: 4, force: 1 };
+    const move = input.touch('touchmove', [point], [point]);
+    const cancel = input.touch('touchcancel', [point]);
+    assert.equal(move.prevented, 1, 'drag cancellation must remain enabled');
+    assert.equal(move.stopped, 1);
+    assert.equal(cancel.prevented, 0);
+    assert.equal(cancel.stopped, 0);
+    assert.deepEqual(input.records.map((record) => record.eventObj.eventType), [1, 2]);
+    assert.deepEqual(input.records[0].eventObj.changedTouches, [{ pointX: 8, pointY: 9, radius: 3, force: 1, pointUID: 7 }]);
+});
+
+test('WASM desktop mouse and wheel handlers retain their event mappings', async () => {
+    const input = await wasmCanvasInput();
+    const events = ['mousedown', 'mouseup', 'mousemove', 'wheel'].map((type) =>
+        input.send(type, { offsetX: 120, offsetY: 80, button: 2, movementX: 6, movementY: -8, deltaY: 120 }));
+    assert.ok(events.every((event) => event.prevented === 1 && event.stopped === 1));
+    assert.deepEqual(input.records, [
+        { group: 0, type: 0, eventObj: { eventType: 0, posX: 120, posY: 80, button: 2 } },
+        { group: 0, type: 0, eventObj: { eventType: 1, posX: 120, posY: 80, button: 2 } },
+        { group: 0, type: 0, eventObj: { eventType: 2, posX: 120, posY: 80, movementX: 6, movementY: -8 } },
+        { group: 0, type: 0, eventObj: { eventType: 3, posX: 120, posY: 80, wheel: 120 } }
+    ]);
+});
+
+test('WASM mouse pointer-lock activation behavior remains unchanged', async () => {
+    const input = await wasmCanvasInput();
+    input.context.Ba = true;
+    input.context.wa = true;
+    input.send('mousedown', { offsetX: 2, offsetY: 3, button: 0 });
+    assert.deepEqual(input.locks, [1]);
+    assert.deepEqual(input.records, []);
+    input.context.document.pointerLockElement = input.context.R;
+    input.send('mousedown', { offsetX: 2, offsetY: 3, button: 0 });
+    assert.equal(input.records[0].eventObj.eventType, 0);
 });
 
 test('the actual WASM loader still rejects an invalid EPW checksum', async () => {
